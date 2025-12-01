@@ -1,0 +1,30 @@
+---
+# Base OS Configuration Playbook
+# Applies base OS hardening from image-factory before Docker Swarm setup
+#
+# Usage:
+#   ansible-playbook -i ../image-factory/ansible/inventory/pi5.yml playbooks/base-os.yml
+#   OR use the image-factory playbook directly:
+#   cd ../image-factory && ansible-playbook -i ansible/inventory/pi5.yml ansible/linux-playbook.yml
+
+- name: Apply base OS hardening from image-factory
+  become: true
+  become_method: sudo
+  gather_facts: true
+  hosts: swarm
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+
+  roles:
+    # Import roles from image-factory using absolute or relative path
+    - role: "{{ playbook_dir }}/../../image-factory/ansible/roles/base"
+      tags: [base, os]
+
+    - role: "{{ playbook_dir }}/../../image-factory/ansible/roles/users"
+      tags: [users]
+
+    - role: "{{ playbook_dir }}/../../image-factory/ansible/roles/security"
+      tags: [security, hardening]
+
+    - role: "{{ playbook_dir }}/../../image-factory/ansible/roles/storage"
+      tags: [storage]

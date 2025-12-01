@@ -1,0 +1,125 @@
+---
+# Network Configuration for Multi-VLAN Support
+# Configures VLAN tagging and network interfaces for Docker Swarm nodes
+
+- name: Wait for apt lock to be released
+  ansible.builtin.wait_for:
+    path: /var/lib/apt/lists/lock
+    state: absent
+    timeout: 300
+  failed_when: false
+  changed_when: false
+
+- name: Install VLAN utilities
+  ansible.builtin.apt:
+    name:
+      - vlan
+      - bridge-utils
+    state: present
+    update_cache: true
+    lock_timeout: 300
+
+- name: Load 8021q module for VLAN support
+  ansible.builtin.modprobe:
+    name: 8021q
+    state: present
+    persistent: present
+
+- name: Ensure 8021q module loads on boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/vlan.conf
+    line: 8021q
+    create: true
+    mode: "0644"
+
+- name: Detect primary network interface
+  ansible.builtin.set_fact:
+    primary_interface: "{{ ansible_default_ipv4.interface }}"
+
+- name: Display primary network interface
+  ansible.builtin.debug:
+    msg: "Primary network interface: {{ primary_interface }}"
+
+- name: Create VLAN interfaces for Traefik multi-homed networking
+  ansible.builtin.command: >
+    ip link add link {{ primary_interface }} name {{ primary_interface }}.{{ item.id }} type vlan id {{ item.id }}
+  register: vlan_create
+  failed_when: false
+  changed_when: vlan_create.rc != 0
+  loop: "{{ swarm_vlans }}"
+  when: swarm_vlans is defined
+
+- name: Configure VLAN interfaces with Netplan
+  ansible.builtin.copy:
+    dest: "/etc/netplan/50-vlan-{{ item.id }}-{{ item.name }}.yaml"
+    content: |
+      network:
+        version: 2
+        vlans:
+          {{ primary_interface }}.{{ item.id }}:
+            id: {{ item.id }}
+            link: {{ primary_interface }}
+            dhcp4: false
+            # IP addresses will be configured by Traefik container or manually
+            # addresses: []
+    mode: "0644"
+  loop: "{{ swarm_vlans }}"
+  when: swarm_vlans is defined
+  notify: apply netplan
+
+- name: Configure firewall rules for Docker Swarm
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "Docker Swarm {{ item }}"
+  loop:
+    - 2377 # Swarm management port
+    - 7946 # Container network discovery
+  notify: reload ufw
+
+- name: Configure firewall rules for Docker Swarm UDP
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: udp
+    comment: "Docker Swarm {{ item }}"
+  loop:
+    - 7946 # Container network discovery
+    - 4789 # Overlay network traffic
+  notify: reload ufw
+
+- name: Allow Docker overlay network traffic
+  ansible.builtin.ufw:
+    rule: allow
+    from_ip: "{{ swarm_vlans | map(attribute='subnet') | list | join(',') }}"
+    comment: "Docker overlay networks"
+  when: swarm_vlans is defined
+  ignore_errors: true # UFW may not support from_ip in all versions
+  notify: reload ufw
+
+- name: Configure kernel sysctls for multi-VLAN Traefik support
+  ansible.builtin.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  loop:
+    - { name: "net.ipv4.conf.all.accept_local", value: "1" }
+    - { name: "net.ipv4.conf.all.rp_filter", value: "0" }
+    - { name: "net.ipv4.ip_nonlocal_bind", value: "1" }
+  # Note: rp_filter=0 is needed for multi-homed Traefik on VLAN interfaces
+  # This overrides the security role's rp_filter=1 setting
+
+- name: Make VLAN sysctl settings persistent
+  ansible.builtin.blockinfile:
+    path: /etc/sysctl.d/99-traefik-vlan.conf
+    create: true
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - TRAEFIK VLAN SUPPORT"
+    block: |
+      # Kernel parameters for Traefik multi-VLAN support
+      # These settings allow Traefik to receive traffic on multiple VLAN interfaces
+      net.ipv4.conf.all.accept_local = 1
+      net.ipv4.conf.all.rp_filter = 0
+      net.ipv4.ip_nonlocal_bind = 1

@@ -1,0 +1,87 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  adguard:
+    image: adguard/adguardhome:latest
+    volumes:
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
+    networks:
+      - mgmt-network
+    ports:
+      # DNS (UDP/TCP) - host mode required for DNS to work properly
+      - target: 53
+        published: 53
+        protocol: udp
+        mode: host
+      - target: 53
+        published: 53
+        protocol: tcp
+        mode: host
+      # Web UI - exposed for Traefik routing
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: host
+      # DNS-over-HTTPS (DoH)
+      - target: 443
+        published: 8443
+        protocol: tcp
+        mode: host
+      # DNS-over-TLS (DoT)
+      - target: 853
+        published: 853
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == swarm-pi5-01
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.adguard.loadbalancer.server.port=80
+        # Public access via Traefik on VLAN 5 (for end users)
+        # HTTPS
+        - traefik.http.routers.blocker.rule=Host(`blocker.specterrealm.com`)
+        - traefik.http.routers.blocker.entrypoints=websecure
+        - traefik.http.routers.blocker.tls.certresolver=cf
+        - traefik.http.routers.blocker.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.blocker-http.rule=Host(`blocker.specterrealm.com`)
+        - traefik.http.routers.blocker-http.entrypoints=web
+        - traefik.http.routers.blocker-http.service=noop@internal
+        - traefik.http.routers.blocker-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.blocker-http.priority=100
+        # Management access from VLAN 15 (direct access, not for end users)
+        # HTTPS
+        - traefik.http.routers.adguard-mgmt.rule=Host(`adguard-mgmt.specterrealm.com`)
+        - traefik.http.routers.adguard-mgmt.entrypoints=websecure
+        - traefik.http.routers.adguard-mgmt.tls.certresolver=cf
+        - traefik.http.routers.adguard-mgmt.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.adguard-mgmt-http.rule=Host(`adguard-mgmt.specterrealm.com`)
+        - traefik.http.routers.adguard-mgmt-http.entrypoints=web
+        - traefik.http.routers.adguard-mgmt-http.service=noop@internal
+        - traefik.http.routers.adguard-mgmt-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.adguard-mgmt-http.priority=100
+    cap_add:
+      - NET_BIND_SERVICE  # Required to bind to port 53
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+
+volumes:
+  adguard_work:
+    driver: local
+  adguard_conf:
+    driver: local
+

@@ -1,0 +1,30 @@
+---
+# Docker Swarm Cluster Setup Playbook
+# This playbook sets up a complete Docker Swarm cluster on Raspberry Pi 5 nodes
+#
+# Usage:
+#   ansible-playbook playbooks/swarm-setup.yml
+#   ansible-playbook playbooks/swarm-setup.yml --limit swarm_managers
+#   ansible-playbook playbooks/swarm-setup.yml --limit swarm_workers
+
+- name: Install Docker Engine and configure Docker Swarm
+  become: true
+  become_method: sudo
+  gather_facts: true
+  hosts: swarm
+  # Run all hosts in parallel for Docker/network setup
+  # Swarm initialization will handle serialization internally
+  serial: "100%"
+  vars:
+    docker_compose_version: "2.24.0"
+
+  roles:
+    - role: docker
+      tags: [docker, install]
+
+    - role: network
+      tags: [network, vlans]
+
+    - role: swarm
+      tags: [swarm, cluster]
+      when: swarm_role is defined

@@ -1,0 +1,69 @@
+http:
+  routers:
+    # Traefik Dashboard - HTTP redirect
+    traefik-http:
+      rule: Host(`traefik.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https@file
+      priority: 100
+
+    # Traefik Dashboard - HTTPS
+    traefik:
+      rule: Host(`traefik.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: api@internal
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow@file
+      priority: 100
+
+    # Traefik Management - HTTP redirect
+    traefik-mgmt-http:
+      rule: Host(`traefik-mgmt.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https@file
+      priority: 100
+
+    # Traefik Management - HTTPS
+    traefik-mgmt:
+      rule: Host(`traefik-mgmt.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: api@internal
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow@file
+
+    # Traefik Internal - HTTPS
+    traefik-internal:
+      rule: Host(`traefik-internal.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: api@internal
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow@file
+
+  middlewares:
+    # Middlewares defined here are available to all services via @file suffix
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    lan-allow:
+      ipWhiteList:
+        sourceRange:
+          - 172.16.0.0/12
+          - 10.0.0.0/8
+

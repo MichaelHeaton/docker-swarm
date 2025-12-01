@@ -1,0 +1,145 @@
+---
+# Docker Swarm Cluster Initialization and Management
+
+- name: Check if node is already part of a Swarm
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+  register: swarm_status
+  changed_when: false
+  failed_when: false
+
+- name: Check if node is a Swarm manager
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.ControlAvailable{{ "}}" }}'
+  register: swarm_control
+  changed_when: false
+  failed_when: false
+  when: swarm_status.stdout == 'active'
+
+- name: Set Swarm facts
+  ansible.builtin.set_fact:
+    is_swarm_member: "{{ swarm_status.stdout == 'active' }}"
+    is_swarm_manager: "{{ swarm_status.stdout == 'active' and swarm_control.stdout | default('') == 'true' }}"
+
+- name: Display Swarm status
+  ansible.builtin.debug:
+    msg: "Swarm status: {{ swarm_status.stdout }}, Member: {{ is_swarm_member }}, Manager: {{ is_swarm_manager }}"
+
+- name: Initialize Swarm on first manager
+  ansible.builtin.command: >
+    docker swarm init
+    --advertise-addr {{ swarm_advertise_addr }}
+    --listen-addr {{ swarm_listen_addr }}
+  register: swarm_init
+  when:
+    - swarm_role == 'manager'
+    - not is_swarm_member
+    - inventory_hostname == groups['swarm_managers'][0] # Only first manager
+  changed_when: swarm_init.rc == 0
+
+- name: Extract manager join token
+  ansible.builtin.set_fact:
+    manager_token: "{{ swarm_init.stdout | regex_search('docker swarm join --token ([^\\s]+)', '\\1') | first }}"
+  when:
+    - swarm_init is defined
+    - swarm_init.rc is defined
+    - swarm_init.rc == 0
+    - inventory_hostname == groups['swarm_managers'][0]
+
+- name: Extract worker join token
+  ansible.builtin.set_fact:
+    worker_token: "{{ swarm_init.stdout | regex_search('docker swarm join --token ([^\\s]+)', '\\1') | first }}"
+  when:
+    - swarm_init is defined
+    - swarm_init.rc is defined
+    - swarm_init.rc == 0
+    - inventory_hostname == groups['swarm_managers'][0]
+
+- name: Get manager join token from first manager
+  ansible.builtin.command: docker swarm join-token manager -q
+  register: manager_token_remote
+  delegate_to: "{{ groups['swarm_managers'][0] }}"
+  when:
+    - swarm_role == 'manager'
+    - not is_swarm_member
+    - inventory_hostname != groups['swarm_managers'][0]
+  changed_when: false
+
+- name: Get worker join token from first manager
+  ansible.builtin.command: docker swarm join-token worker -q
+  register: worker_token_remote
+  delegate_to: "{{ groups['swarm_managers'][0] }}"
+  when:
+    - swarm_role == 'worker'
+    - not is_swarm_member
+  changed_when: false
+
+- name: Join Swarm as manager (additional managers)
+  ansible.builtin.command: >
+    docker swarm join
+    --token {{ manager_token_remote.stdout }}
+    --advertise-addr {{ swarm_advertise_addr }}
+    {{ hostvars[groups['swarm_managers'][0]]['ansible_default_ipv4']['address'] }}:2377
+  register: swarm_join_manager
+  when:
+    - swarm_role == 'manager'
+    - not is_swarm_member
+    - inventory_hostname != groups['swarm_managers'][0]
+    - manager_token_remote is defined
+    - manager_token_remote.stdout is defined
+  changed_when: swarm_join_manager.rc == 0
+
+- name: Join Swarm as worker
+  ansible.builtin.command: >
+    docker swarm join
+    --token {{ worker_token_remote.stdout }}
+    --advertise-addr {{ swarm_advertise_addr }}
+    {{ hostvars[groups['swarm_managers'][0]]['ansible_default_ipv4']['address'] }}:2377
+  register: swarm_join_worker
+  when:
+    - swarm_role == 'worker'
+    - not is_swarm_member
+    - worker_token_remote is defined
+    - worker_token_remote.stdout is defined
+  changed_when: swarm_join_worker.rc == 0
+
+- name: Verify Swarm membership
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+  register: swarm_verify
+  changed_when: false
+  failed_when: swarm_verify.stdout != 'active'
+
+- name: Display Swarm node information
+  ansible.builtin.command: docker node ls
+  register: swarm_nodes
+  changed_when: false
+  when: swarm_role == 'manager'
+
+- name: Show Swarm cluster nodes
+  ansible.builtin.debug:
+    var: swarm_nodes.stdout
+  when: swarm_nodes is defined
+
+- name: Create Docker Swarm overlay networks for VLANs
+  ansible.builtin.command: >
+    docker network create
+    --driver overlay
+    --attachable
+    {{ item.name }}-network
+  register: network_create
+  failed_when: false
+  changed_when: network_create.rc != 0
+  loop: "{{ swarm_vlans }}"
+  when:
+    - swarm_role == 'manager'
+    - swarm_vlans is defined
+    - is_swarm_member
+
+- name: List Swarm networks
+  ansible.builtin.command: docker network ls --filter driver=overlay
+  register: swarm_networks
+  changed_when: false
+  when: swarm_role == 'manager'
+
+- name: Display Swarm networks
+  ansible.builtin.debug:
+    var: swarm_networks.stdout
+  when: swarm_networks is defined

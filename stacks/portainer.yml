@@ -1,0 +1,62 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - mgmt-network
+    ports:
+      - target: 9000
+        published: 9000
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.portainer.loadbalancer.server.port=9000
+        # Public access via Traefik on VLAN 5 (for end users)
+        # HTTPS
+        - traefik.http.routers.portainer.rule=Host(`portainer.specterrealm.com`)
+        - traefik.http.routers.portainer.entrypoints=websecure
+        - traefik.http.routers.portainer.tls.certresolver=cf
+        - traefik.http.routers.portainer.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.portainer-http.rule=Host(`portainer.specterrealm.com`)
+        - traefik.http.routers.portainer-http.entrypoints=web
+        - traefik.http.routers.portainer-http.service=noop@internal
+        - traefik.http.routers.portainer-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.portainer-http.priority=100
+        # Management access from VLAN 15 (direct access, not for end users)
+        # HTTPS
+        - traefik.http.routers.portainer-mgmt.rule=Host(`portainer-mgmt.specterrealm.com`)
+        - traefik.http.routers.portainer-mgmt.entrypoints=websecure
+        - traefik.http.routers.portainer-mgmt.tls.certresolver=cf
+        - traefik.http.routers.portainer-mgmt.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.portainer-mgmt-http.rule=Host(`portainer-mgmt.specterrealm.com`)
+        - traefik.http.routers.portainer-mgmt-http.entrypoints=web
+        - traefik.http.routers.portainer-mgmt-http.service=noop@internal
+        - traefik.http.routers.portainer-mgmt-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.portainer-mgmt-http.priority=100
+
+volumes:
+  portainer_data:
+    driver: local
+

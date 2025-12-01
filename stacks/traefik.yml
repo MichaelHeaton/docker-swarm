@@ -1,0 +1,120 @@
+version: "3.8"
+
+networks:
+  # Overlay networks for service discovery
+  family-network:
+    external: true
+  production-network:
+    external: true
+  mgmt-network:
+    external: true
+  dmz-network:
+    external: true
+  guest-network:
+    external: true
+  # Note: Macvlan networks don't work with Docker Swarm services
+  # Static IPs on VLAN interfaces require host networking mode
+  # For now, we use overlay networks and route via Swarm ingress
+
+services:
+  traefik:
+    image: traefik:v2.11
+    command:
+      # Docker Swarm provider (v2 uses docker provider with swarmMode)
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.swarmMode=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=mgmt-network
+      # File provider for static routes (VMs/LXCs)
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # ACME/Let's Encrypt
+      - --certificatesresolvers.cf.acme.email=admin@specterrealm.com
+      - --certificatesresolvers.cf.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.cf.acme.dnschallenge.provider=cloudflare
+      - --certificatesresolvers.cf.acme.dnschallenge.delaybeforecheck=30
+      # API and Dashboard
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --ping=true
+      # Logging
+      - --log.level=INFO
+      - --accesslog=true
+    environment:
+      - CLOUDFLARE_DNS_API_TOKEN=${CF_API_TOKEN}
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/letsencrypt
+      - traefik_dynamic:/etc/traefik/dynamic
+    networks:
+      # Overlay networks for service discovery
+      # Note: Static IPs on VLAN interfaces (172.16.5.10, 172.16.15.17) require
+      # host networking mode, which doesn't work well with Swarm service discovery.
+      # DNS records can point to any Swarm manager node IP and traffic will
+      # route correctly via overlay networks.
+      - family-network
+      - production-network
+      - mgmt-network
+      - dmz-network
+      - guest-network
+    ports:
+      # HTTP
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      # HTTPS
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+      # Traefik API (internal only)
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: host
+    dns:
+      - 172.16.15.1  # UniFi DNS
+      - 1.1.1.1      # Cloudflare DNS
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == manager
+        preferences:
+          - spread: node.id
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      labels:
+        - traefik.enable=false
+        - traefik.docker.network=mgmt-network
+        # Middlewares (defined here so they can be referenced by other services via @docker)
+        # Note: Routers are defined in the file provider (stacks/dynamic/traefik-routers.yml)
+        # traefik.enable=false prevents Traefik from trying to discover itself via Docker provider
+        - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+        - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+        - traefik.http.middlewares.lan-allow.ipwhitelist.sourcerange=172.16.0.0/12,10.0.0.0/8
+        - traefik.http.middlewares.admin-allow.ipwhitelist.sourcerange=172.16.0.0/12,10.0.0.0/8
+
+volumes:
+  traefik_acme:
+    driver: local
+  traefik_dynamic:
+    driver: local
+

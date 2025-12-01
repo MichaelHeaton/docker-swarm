@@ -1,0 +1,15 @@
+---
+# Homepage Family Services Configuration
+# Services grouped by stacks
+
+- Stream:
+    - Plex:
+        href: https://streaming.specterrealm.com
+        icon: plex
+        description: Media server
+
+- ESport:
+    - Minecraft:
+        href: minecraft://
+        icon: minecraft
+        description: Minecraft Java Edition server (connect via game client)

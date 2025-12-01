@@ -1,0 +1,61 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - mgmt-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.hostname == swarm-pi5-01  # Pin to node with VLAN 5 access
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.uptime-kuma.loadbalancer.server.port=3001
+        # Public access via Traefik on VLAN 5 (for end users)
+        # HTTPS
+        - traefik.http.routers.uptime-kuma.rule=Host(`status.specterrealm.com`)
+        - traefik.http.routers.uptime-kuma.entrypoints=websecure
+        - traefik.http.routers.uptime-kuma.tls.certresolver=cf
+        - traefik.http.routers.uptime-kuma.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.uptime-kuma-http.rule=Host(`status.specterrealm.com`)
+        - traefik.http.routers.uptime-kuma-http.entrypoints=web
+        - traefik.http.routers.uptime-kuma-http.service=noop@internal
+        - traefik.http.routers.uptime-kuma-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.uptime-kuma-http.priority=100
+        # Management access from VLAN 15 (direct access, not for end users)
+        # HTTPS
+        - traefik.http.routers.uptime-kuma-mgmt.rule=Host(`status-mgmt.specterrealm.com`)
+        - traefik.http.routers.uptime-kuma-mgmt.entrypoints=websecure
+        - traefik.http.routers.uptime-kuma-mgmt.tls.certresolver=cf
+        - traefik.http.routers.uptime-kuma-mgmt.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.uptime-kuma-mgmt-http.rule=Host(`status-mgmt.specterrealm.com`)
+        - traefik.http.routers.uptime-kuma-mgmt-http.entrypoints=web
+        - traefik.http.routers.uptime-kuma-mgmt-http.service=noop@internal
+        - traefik.http.routers.uptime-kuma-mgmt-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.uptime-kuma-mgmt-http.priority=100
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+    dns:
+      - 172.16.15.1  # UniFi DNS
+      - 1.1.1.1      # Cloudflare DNS
+
+volumes:
+  uptime_kuma_data:
+    driver: local
+

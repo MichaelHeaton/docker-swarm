@@ -1,0 +1,12 @@
+---
+# Network configuration handlers
+
+- name: apply netplan
+  ansible.builtin.command: netplan apply
+  async: 10
+  poll: 5
+
+- name: reload ufw
+  ansible.builtin.command: ufw reload
+  async: 5
+  poll: 2

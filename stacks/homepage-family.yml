@@ -1,0 +1,52 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  homepage-family:
+    image: ghcr.io/gethomepage/homepage:latest
+    volumes:
+      - homepage_family_config:/app/config
+      - homepage_family_icons:/app/public/icons
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - mgmt-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.homepage-family.loadbalancer.server.port=3000
+        # Public access via Traefik on VLAN 5 (for end users)
+        # HTTPS
+        - traefik.http.routers.homepage-family.rule=Host(`home.specterrealm.com`)
+        - traefik.http.routers.homepage-family.entrypoints=websecure
+        - traefik.http.routers.homepage-family.tls.certresolver=cf
+        - traefik.http.routers.homepage-family.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.homepage-family-http.rule=Host(`home.specterrealm.com`)
+        - traefik.http.routers.homepage-family-http.entrypoints=web
+        - traefik.http.routers.homepage-family-http.service=noop@internal
+        - traefik.http.routers.homepage-family-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.homepage-family-http.priority=100
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - HOMEPAGE_TITLE=Family Dashboard
+      - HOMEPAGE_SUBTITLE=Service Dashboard for Family
+      - HOMEPAGE_ALLOWED_HOSTS=home.specterrealm.com
+
+volumes:
+  homepage_family_config:
+    driver: local
+  homepage_family_icons:
+    driver: local
+

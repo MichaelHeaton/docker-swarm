@@ -1,0 +1,52 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  homepage-admin:
+    image: ghcr.io/gethomepage/homepage:latest
+    volumes:
+      - homepage_admin_config:/app/config
+      - homepage_admin_icons:/app/public/icons
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - mgmt-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.homepage-admin.loadbalancer.server.port=3000
+        # Public access via Traefik on VLAN 5 (for admin users)
+        # HTTPS
+        - traefik.http.routers.homepage-admin.rule=Host(`admin.specterrealm.com`)
+        - traefik.http.routers.homepage-admin.entrypoints=websecure
+        - traefik.http.routers.homepage-admin.tls.certresolver=cf
+        - traefik.http.routers.homepage-admin.middlewares=lan-allow@file
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.homepage-admin-http.rule=Host(`admin.specterrealm.com`)
+        - traefik.http.routers.homepage-admin-http.entrypoints=web
+        - traefik.http.routers.homepage-admin-http.service=noop@internal
+        - traefik.http.routers.homepage-admin-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.homepage-admin-http.priority=100
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - HOMEPAGE_TITLE=Admin Dashboard
+      - HOMEPAGE_SUBTITLE=Service Dashboard for Administrators
+      - HOMEPAGE_ALLOWED_HOSTS=admin.specterrealm.com
+
+volumes:
+  homepage_admin_config:
+    driver: local
+  homepage_admin_icons:
+    driver: local
+
