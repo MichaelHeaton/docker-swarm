@@ -1,0 +1,38 @@
+# Environment variables
+.env
+*.env
+env/.env
+
+# Ansible
+.ansible/
+*.retry
+vault_pass.txt
+
+# Sensitive configuration files
+*.key
+*.pem
+*.crt
+*.cert
+secrets/
+*.secret
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
