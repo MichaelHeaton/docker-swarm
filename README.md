@@ -18,11 +18,13 @@ This repository contains Ansible playbooks and Docker Swarm stack definitions fo
 ### Infrastructure Services
 
 1. **Traefik** - Reverse Proxy
+
    - Public: `https://traefik.specterrealm.com` (172.16.5.13 - VLAN 5)
    - Management: `https://traefik-mgmt.specterrealm.com` (172.16.15.13 - VLAN 15)
    - Status: ✅ Running (2 replicas, pinned to swarm-pi5-01)
 
 2. **Portainer** - Container Management
+
    - Public: `https://portainer.specterrealm.com` (via Traefik)
    - Management: `https://portainer-mgmt.specterrealm.com` (172.16.15.13 - VLAN 15)
    - Status: ✅ Running (1 replica, manager nodes)
@@ -35,10 +37,12 @@ This repository contains Ansible playbooks and Docker Swarm stack definitions fo
 ### Dashboard Services
 
 4. **Homepage Family** - Family Dashboard
+
    - URL: `https://home.specterrealm.com` (via Traefik)
    - Status: ✅ Running (1 replica, manager nodes)
 
 5. **Homepage Admin** - Admin Dashboard
+
    - URL: `https://admin.specterrealm.com` (via Traefik)
    - Status: ✅ Running (1 replica, manager nodes)
    - Note: Uses management URLs for all services

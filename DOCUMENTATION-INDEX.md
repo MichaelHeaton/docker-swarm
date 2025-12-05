@@ -3,21 +3,25 @@
 ## Main Documentation
 
 ### Getting Started
+
 - **README.md** - Main project documentation and overview
 - **DEPLOYMENT-SUMMARY.md** - Quick reference for deployed services
 - **SERVICES-STATUS.md** - Current service status and DNS configuration
 
 ### Architecture & Design
+
 - **DNS-ARCHITECTURE-SUMMARY.md** - DNS naming conventions and architecture
 - **K8S-MIGRATION-AND-CONSUL-ANALYSIS.md** - Future Kubernetes migration analysis
 - **MANAGEMENT-TOOL-COMPARISON.md** - Comparison of container management tools
 
 ### Deployment
+
 - **stacks/DEPLOY.md** - Complete deployment guide for all services
 - **stacks/homepage-config-example.md** - Homepage configuration examples
 - **stacks/uptime-kuma-monitors.md** - Uptime Kuma monitor configuration
 
 ### Notes & Explanations
+
 - **WHOAMI-EXPLANATION.md** - Explanation of Whoami service
 - **MINECRAFT-HOMEPAGE-NOTE.md** - Notes on Minecraft server integration
 - **UPTIME-KUMA-NETWORK-FIX.md** - Network fix documentation for Uptime Kuma
@@ -48,4 +52,3 @@ This repository's documentation aligns with:
 - **Deploy Services**: `stacks/DEPLOY.md`
 - **DNS Architecture**: `DNS-ARCHITECTURE-SUMMARY.md`
 - **Main README**: `README.md`
-

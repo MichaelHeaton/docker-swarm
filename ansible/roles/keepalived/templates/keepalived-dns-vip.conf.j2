@@ -1,0 +1,155 @@
+# Keepalived configuration for DNS and Traefik Virtual IPs
+# Provides floating IP addresses that can move between nodes for high availability
+# DNS VIPs: 172.16.5.2, 172.16.15.2, 172.16.101.2
+# Traefik VIPs: 172.16.5.3, 172.16.15.3, 172.16.101.3, 172.16.40.3
+
+vrrp_script chk_dns {
+    script "/usr/bin/nc -z -u localhost 53 || exit 1"
+    interval 2
+    weight -2
+    fall 3
+    rise 2
+}
+
+vrrp_script chk_traefik {
+    script "/usr/bin/nc -z localhost 80 || /usr/bin/nc -z localhost 443 || exit 1"
+    interval 2
+    weight -2
+    fall 3
+    rise 2
+}
+
+# DNS VIP on VLAN 5 (Family)
+vrrp_instance DNS_VIP_VLAN5 {
+    state {{ keepalived_state }}
+    interface {{ ansible_default_ipv4.interface }}.5
+    virtual_router_id 51
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ dns_vip_vlan5 }}/32
+    }
+    track_script {
+        chk_dns
+    }
+}
+
+# DNS VIP on VLAN 15 (Management)
+# Use base interface (eth0) for VLAN 15 since it handles untagged VLAN 15 traffic
+vrrp_instance DNS_VIP_VLAN15 {
+    state {{ keepalived_state }}
+    interface {{ keepalived_base_interface | default(ansible_default_ipv4.interface.split('.')[0]) }}
+    virtual_router_id 52
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ dns_vip_vlan15 }}/32
+    }
+    track_script {
+        chk_dns
+    }
+}
+
+# DNS VIP on VLAN 101 (Guest)
+vrrp_instance DNS_VIP_VLAN101 {
+    state {{ keepalived_state }}
+    interface {{ ansible_default_ipv4.interface }}.101
+    virtual_router_id 53
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ dns_vip_vlan101 }}/32
+    }
+    track_script {
+        chk_dns
+    }
+}
+
+# Traefik VIP on VLAN 5 (Family)
+vrrp_instance TRAEFIK_VIP_VLAN5 {
+    state {{ keepalived_state }}
+    interface {{ ansible_default_ipv4.interface }}.5
+    virtual_router_id 54
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ traefik_vip_vlan5 }}/32
+    }
+    track_script {
+        chk_traefik
+    }
+}
+
+# Traefik VIP on VLAN 15 (Management)
+# Use base interface (eth0) for VLAN 15 since it handles untagged VLAN 15 traffic
+vrrp_instance TRAEFIK_VIP_VLAN15 {
+    state {{ keepalived_state }}
+    interface {{ keepalived_base_interface | default(ansible_default_ipv4.interface.split('.')[0]) }}
+    virtual_router_id 55
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ traefik_vip_vlan15 }}/32
+    }
+    track_script {
+        chk_traefik
+    }
+}
+
+# Traefik VIP on VLAN 101 (Guest)
+vrrp_instance TRAEFIK_VIP_VLAN101 {
+    state {{ keepalived_state }}
+    interface {{ ansible_default_ipv4.interface }}.101
+    virtual_router_id 56
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ traefik_vip_vlan101 }}/32
+    }
+    track_script {
+        chk_traefik
+    }
+}
+
+# Traefik VIP on VLAN 40 (DMZ)
+vrrp_instance TRAEFIK_VIP_VLAN40 {
+    state {{ keepalived_state }}
+    interface {{ ansible_default_ipv4.interface }}.40
+    virtual_router_id 57
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_password }}
+    }
+    virtual_ipaddress {
+        {{ traefik_vip_vlan40 }}/32
+    }
+    track_script {
+        chk_traefik
+    }
+}

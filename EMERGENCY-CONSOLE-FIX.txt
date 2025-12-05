@@ -1,0 +1,33 @@
+EMERGENCY CONSOLE FIX - Type these one at a time
+
+Step 1: Check routes
+ip route show
+
+Step 2: Check VLAN 15 IP
+ip addr show eth0.15
+
+Step 3: Check primary IP
+ip addr show eth0
+
+Step 4: View VLAN 15 config
+sudo cat /etc/netplan/50-vlan-15-mgmt.yaml
+
+Step 5: View primary config
+sudo cat /etc/netplan/00-installer-config.yaml
+
+Step 6: If VLAN 15 missing routes, add them:
+sudo nano /etc/netplan/50-vlan-15-mgmt.yaml
+
+Make sure it has this section:
+      routes:
+        - to: 0.0.0.0/0
+          via: 172.16.15.1
+
+Step 7: Apply
+sudo netplan apply
+
+Step 8: Test
+ip route | grep default
+ping -c 2 172.16.15.1
+
+

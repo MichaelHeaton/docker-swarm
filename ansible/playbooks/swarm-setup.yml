@@ -19,11 +19,21 @@
     docker_compose_version: "2.24.0"
 
   roles:
+    - role: sudo
+      tags: [sudo, users]
+
     - role: docker
       tags: [docker, install]
 
     - role: network
       tags: [network, vlans]
+
+    - role: storage
+      tags: [storage, nfs]
+
+    - role: keepalived
+      tags: [keepalived, ha, vip]
+      when: keepalived_priority is defined
 
     - role: swarm
       tags: [swarm, cluster]

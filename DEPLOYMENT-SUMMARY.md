@@ -18,6 +18,7 @@ Docker Swarm cluster successfully deployed on 4-node Raspberry Pi 5 cluster with
 ### Infrastructure Services
 
 1. **Traefik** (Reverse Proxy)
+
    - Version: v2.11
    - Replicas: 2 (pinned to swarm-pi5-01)
    - Networks: Multi-homed (VLAN 5: 172.16.5.13, VLAN 15: 172.16.15.13)
@@ -25,6 +26,7 @@ Docker Swarm cluster successfully deployed on 4-node Raspberry Pi 5 cluster with
    - Management: `https://traefik-mgmt.specterrealm.com`
 
 2. **Portainer** (Container Management)
+
    - Replicas: 1 (manager nodes)
    - Public: `https://portainer.specterrealm.com`
    - Management: `https://portainer-mgmt.specterrealm.com`
@@ -38,11 +40,13 @@ Docker Swarm cluster successfully deployed on 4-node Raspberry Pi 5 cluster with
 ### Dashboard Services
 
 4. **Homepage Family** (Family Dashboard)
+
    - Replicas: 1 (manager nodes)
    - URL: `https://home.specterrealm.com`
    - Configuration: `stacks/homepage-family-services.yaml`
 
 5. **Homepage Admin** (Admin Dashboard)
+
    - Replicas: 1 (manager nodes)
    - URL: `https://admin.specterrealm.com`
    - Configuration: `stacks/homepage-admin-services.yaml`
@@ -57,6 +61,7 @@ Docker Swarm cluster successfully deployed on 4-node Raspberry Pi 5 cluster with
 ## DNS Configuration
 
 ### CNAME Records (Point to Traefik)
+
 - `portainer.specterrealm.com` → `traefik.specterrealm.com`
 - `blocker.specterrealm.com` → `traefik.specterrealm.com`
 - `home.specterrealm.com` → `traefik.specterrealm.com`
@@ -65,6 +70,7 @@ Docker Swarm cluster successfully deployed on 4-node Raspberry Pi 5 cluster with
 - `streaming.specterrealm.com` → `traefik.specterrealm.com`
 
 ### A Records (Direct Access)
+
 - `traefik.specterrealm.com` → 172.16.5.13 (VLAN 5)
 - `traefik-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
 - `portainer-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
@@ -104,4 +110,3 @@ docker stack deploy -c uptime-kuma.yml uptime-kuma
 - **DNS Architecture**: `DNS-ARCHITECTURE-SUMMARY.md`
 - **Deployment Guide**: `stacks/DEPLOY.md`
 - **Main README**: `README.md`
-

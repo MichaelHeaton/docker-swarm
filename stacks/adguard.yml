@@ -1,42 +1,42 @@
 version: "3.8"
 
-networks:
-  mgmt-network:
-    external: true
+# AdGuard uses host networking to access VLAN interfaces directly
+# IP addresses (using .2 for consistency across all VLANs) must be configured
+# as IP aliases on the host interfaces:
+#   - VLAN 5 (Family): 172.16.5.2 (on eth0.5)
+#   - VLAN 101 (Guest): 172.16.101.2 (on eth0.101)
+#   - VLAN 15 (Management): 172.16.15.2 (on eth0.15)
+#
+# Note: Docker Swarm doesn't support macvlan networks in service definitions.
+# Host networking allows AdGuard to listen on all interfaces, including VLAN interfaces.
 
 services:
   adguard:
     image: adguard/adguardhome:latest
+    network_mode: host  # Required to access VLAN interfaces directly
     volumes:
       - adguard_work:/opt/adguardhome/work
       - adguard_conf:/opt/adguardhome/conf
-    networks:
-      - mgmt-network
     ports:
-      # DNS (UDP/TCP) - host mode required for DNS to work properly
+      # DNS (UDP/TCP) - required for DNS to work
       - target: 53
         published: 53
         protocol: udp
-        mode: host
       - target: 53
         published: 53
         protocol: tcp
-        mode: host
       # Web UI - exposed for Traefik routing
       - target: 3000
         published: 3000
         protocol: tcp
-        mode: host
       # DNS-over-HTTPS (DoH)
       - target: 443
         published: 8443
         protocol: tcp
-        mode: host
       # DNS-over-TLS (DoT)
       - target: 853
         published: 853
         protocol: tcp
-        mode: host
     deploy:
       replicas: 1
       placement:
@@ -46,34 +46,13 @@ services:
         condition: on-failure
         delay: 5s
         max_attempts: 3
-      labels:
-        - traefik.enable=true
-        - traefik.docker.network=mgmt-network
-        - traefik.http.services.adguard.loadbalancer.server.port=80
-        # Public access via Traefik on VLAN 5 (for end users)
-        # HTTPS
-        - traefik.http.routers.blocker.rule=Host(`blocker.specterrealm.com`)
-        - traefik.http.routers.blocker.entrypoints=websecure
-        - traefik.http.routers.blocker.tls.certresolver=cf
-        - traefik.http.routers.blocker.middlewares=lan-allow@file
-        # HTTP -> HTTPS redirect
-        - traefik.http.routers.blocker-http.rule=Host(`blocker.specterrealm.com`)
-        - traefik.http.routers.blocker-http.entrypoints=web
-        - traefik.http.routers.blocker-http.service=noop@internal
-        - traefik.http.routers.blocker-http.middlewares=redirect-to-https@file
-        - traefik.http.routers.blocker-http.priority=100
-        # Management access from VLAN 15 (direct access, not for end users)
-        # HTTPS
-        - traefik.http.routers.adguard-mgmt.rule=Host(`adguard-mgmt.specterrealm.com`)
-        - traefik.http.routers.adguard-mgmt.entrypoints=websecure
-        - traefik.http.routers.adguard-mgmt.tls.certresolver=cf
-        - traefik.http.routers.adguard-mgmt.middlewares=lan-allow@file
-        # HTTP -> HTTPS redirect
-        - traefik.http.routers.adguard-mgmt-http.rule=Host(`adguard-mgmt.specterrealm.com`)
-        - traefik.http.routers.adguard-mgmt-http.entrypoints=web
-        - traefik.http.routers.adguard-mgmt-http.service=noop@internal
-        - traefik.http.routers.adguard-mgmt-http.middlewares=redirect-to-https@file
-        - traefik.http.routers.adguard-mgmt-http.priority=100
+      # Note: Traefik service discovery doesn't work with macvlan networks
+      # Traefik routes are configured via file provider (see stacks/dynamic/adguard-routes.yml)
+      # Web UI is accessible directly at:
+      #   - VLAN 5: https://172.16.5.2:3000
+      #   - VLAN 101: https://172.16.101.2:3000
+      #   - VLAN 15: https://172.16.15.2:3000
+      # Or via Traefik proxy: https://adguard-mgmt.specterrealm.com
     cap_add:
       - NET_BIND_SERVICE  # Required to bind to port 53
     environment:

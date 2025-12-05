@@ -7,6 +7,7 @@ Minecraft is a **game server**, not a web service. It doesn't have a web interfa
 ## Current Configuration
 
 The Homepage currently shows:
+
 - **Minecraft**: `minecraft://` protocol link
 - **Description**: "Minecraft Java Edition server (connect via game client)"
 
@@ -21,20 +22,24 @@ The Homepage currently shows:
 ## Options for Future
 
 ### Option 1: Remove from Homepage
+
 - Remove Minecraft from the Homepage entirely
 - Users connect directly via Minecraft client using the server IP/domain
 
 ### Option 2: Add Minecraft Map Viewer
+
 - Deploy a Minecraft map viewer (e.g., `bluemap`, `dynmap`, `pl3xmap`)
 - These provide a web interface to view the Minecraft world map
 - Link would point to the map viewer URL (e.g., `https://minecraft-map.specterrealm.com`)
 
 ### Option 3: Add Minecraft Server Management Tool
+
 - Deploy a Minecraft server management tool (e.g., `Pterodactyl`, `MCSManager`)
 - These provide a web interface to manage the Minecraft server
 - Link would point to the management interface
 
 ### Option 4: Keep as Placeholder
+
 - Keep the current `minecraft://` link as a placeholder
 - Add a note that users should connect via the Minecraft game client
 - Consider adding the server IP/domain in the description
@@ -52,4 +57,3 @@ The Homepage currently shows:
 - **IP**: See `specs-homelab/reference/common-values.md`
 - **Port**: 25565 (default Minecraft port)
 - **Version**: Java Edition
-

@@ -45,6 +45,103 @@
   failed_when: false
   changed_when: false
 
+- name: Clean apt cache to fix repository issues
+  ansible.builtin.command: apt-get clean
+  changed_when: true
+  failed_when: false
+
+- name: Configure apt to prefer IPv4 (disable IPv6 for apt)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99force-ipv4
+    content: |
+      Acquire::ForceIPv4 "true";
+    mode: "0644"
+  changed_when: true
+
+- name: Update apt cache (check for broken repos)
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: apt_update_check
+  changed_when: apt_update_check.rc == 0
+  failed_when: false
+
+- name: Check if apt update failed or has errors
+  ansible.builtin.set_fact:
+    apt_needs_fix: "{{ apt_update_check.rc != 0 or 'Release file' in (apt_update_check.stderr | default('') + apt_update_check.stdout | default('')) or 'no longer has a Release file' in (apt_update_check.stderr | default('') + apt_update_check.stdout | default('')) or 'Network is unreachable' in (apt_update_check.stderr | default('') + apt_update_check.stdout | default('')) }}"
+
+- name: Display apt update status
+  ansible.builtin.debug:
+    msg: "Apt update status: rc={{ apt_update_check.rc }}, needs_fix={{ apt_needs_fix }}"
+
+- name: Check if Ubuntu sources file exists
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+  register: ubuntu_sources_file
+  when: apt_needs_fix | default(false) | bool
+
+- name: Backup current apt sources
+  ansible.builtin.shell: |
+    [ -f /etc/apt/sources.list ] && cp /etc/apt/sources.list /etc/apt/sources.list.backup || true
+    [ -f /etc/apt/sources.list.d/ubuntu.sources ] && cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup || true
+  changed_when: true
+  failed_when: false
+  when: apt_needs_fix | default(false) | bool
+
+- name: Comment out old sources.list to avoid duplicates
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list
+    regexp: "^deb "
+    replace: "# deb "
+  when:
+    - apt_needs_fix | default(false) | bool
+    - ubuntu_sources_file.stat.exists | default(false)
+  failed_when: false
+
+- name: Fix broken apt repositories in ubuntu.sources (Ubuntu 24.04 format)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ubuntu.sources
+    content: |
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports
+      Suites: {{ ansible_lsb.codename }} {{ ansible_lsb.codename }}-updates {{ ansible_lsb.codename }}-security {{ ansible_lsb.codename }}-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+    mode: "0644"
+  when:
+    - apt_needs_fix | default(false) | bool
+    - ubuntu_sources_file.stat.exists | default(false)
+
+- name: Fix broken apt repositories by replacing sources.list (fallback for old format)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    content: |
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }} main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-updates main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-security main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-backports main restricted universe multiverse
+    mode: "0644"
+  when:
+    - apt_needs_fix | default(false) | bool
+    - not (ubuntu_sources_file.stat.exists | default(false))
+
+- name: Clean apt cache after fixing repositories
+  ansible.builtin.command: /usr/bin/apt-get clean
+  changed_when: true
+  failed_when: false
+  when: apt_needs_fix | default(false) | bool
+
+- name: Update apt cache after fixing repositories
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: apt_update_after_fix
+  changed_when: apt_update_after_fix.rc == 0
+  failed_when: apt_update_after_fix.rc != 0
+  when: apt_needs_fix | default(false) | bool
+
+- name: Verify apt repositories are working (final check)
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: apt_final_check
+  changed_when: apt_final_check.rc == 0
+  failed_when: apt_final_check.rc != 0
+
 - name: Remove any existing Docker repository (before prerequisites)
   ansible.builtin.file:
     path: /etc/apt/sources.list.d/docker.list
@@ -59,14 +156,14 @@
       - gnupg
       - lsb-release
     state: present
-    update_cache: true
+    update_cache: false
     lock_timeout: 300
 
 - name: Create directory for Docker GPG keyring
   ansible.builtin.file:
     path: /etc/apt/keyrings
     state: directory
-    mode: '0755'
+    mode: "0755"
   when: not docker_installed
 
 - name: Remove any existing Docker GPG key
@@ -93,9 +190,10 @@
   when: not docker_installed
 
 - name: Update apt cache after adding Docker repository
-  ansible.builtin.apt:
-    update_cache: true
-    cache_valid_time: 0
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: docker_repo_update
+  changed_when: docker_repo_update.rc == 0
+  failed_when: docker_repo_update.rc != 0
   when: not docker_installed
 
 - name: Install Docker Engine, CLI, and Containerd
@@ -107,7 +205,7 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
-    update_cache: true
+    update_cache: false
     lock_timeout: 300
   when: not docker_installed
   register: docker_install
@@ -150,8 +248,7 @@
           "max-size": "10m",
           "max-file": "3"
         },
-        "storage-driver": "overlay2",
-        "live-restore": true
+        "storage-driver": "overlay2"
       }
     mode: "0644"
   notify: restart docker

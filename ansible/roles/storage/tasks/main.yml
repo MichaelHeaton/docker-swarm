@@ -1,0 +1,213 @@
+---
+# Storage Configuration - NFS Mounts for Docker Volumes
+# Mounts NAS01 Docker shares for persistent storage
+
+- name: Wait for apt lock to be released
+  ansible.builtin.wait_for:
+    path: /var/lib/apt/lists/lock
+    state: absent
+    timeout: 300
+  failed_when: false
+  changed_when: false
+
+- name: Clean apt cache to fix repository issues
+  ansible.builtin.command: /usr/bin/apt-get clean
+  changed_when: true
+  failed_when: false
+  # Note: apt module doesn't have clean action, must use apt-get clean command
+
+- name: Configure apt to prefer IPv4 (disable IPv6 for apt)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99force-ipv4
+    content: |
+      Acquire::ForceIPv4 "true";
+    mode: "0644"
+  changed_when: true
+
+- name: Update apt cache (ignore errors from broken repos)
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: storage_apt_update_result
+  changed_when: storage_apt_update_result.rc == 0
+  failed_when: false
+  # Note: Using shell to capture both stdout and stderr for error detection
+
+- name: Check if apt update failed or has repository errors
+  ansible.builtin.set_fact:
+    storage_apt_needs_fix: "{{ storage_apt_update_result.rc != 0 or 'Release file' in (storage_apt_update_result.stderr | default('') + storage_apt_update_result.stdout | default('')) or 'no longer has a Release file' in (storage_apt_update_result.stderr | default('') + storage_apt_update_result.stdout | default('')) or 'Network is unreachable' in (storage_apt_update_result.stderr | default('') + storage_apt_update_result.stdout | default('')) }}"
+
+- name: Check if Ubuntu sources file exists
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+  register: storage_ubuntu_sources_file
+  when: storage_apt_needs_fix | default(false) | bool
+
+- name: Backup current apt sources
+  ansible.builtin.shell: |
+    [ -f /etc/apt/sources.list ] && cp /etc/apt/sources.list /etc/apt/sources.list.backup || true
+    [ -f /etc/apt/sources.list.d/ubuntu.sources ] && cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup || true
+  changed_when: true
+  failed_when: false
+  when: storage_apt_needs_fix | default(false) | bool
+
+- name: Comment out old sources.list to avoid duplicates
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list
+    regexp: "^deb "
+    replace: "# deb "
+  when:
+    - storage_apt_needs_fix | default(false) | bool
+    - storage_ubuntu_sources_file.stat.exists | default(false)
+  failed_when: false
+
+- name: Fix broken apt repositories in ubuntu.sources (Ubuntu 24.04 format)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ubuntu.sources
+    content: |
+      Types: deb
+      URIs: http://ports.ubuntu.com/ubuntu-ports
+      Suites: {{ ansible_lsb.codename }} {{ ansible_lsb.codename }}-updates {{ ansible_lsb.codename }}-security {{ ansible_lsb.codename }}-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+    mode: "0644"
+  when:
+    - storage_apt_needs_fix | default(false) | bool
+    - storage_ubuntu_sources_file.stat.exists | default(false)
+
+- name: Fix broken apt repositories by replacing sources.list (fallback for old format)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    content: |
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }} main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-updates main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-security main restricted universe multiverse
+      deb http://ports.ubuntu.com/ubuntu-ports/ {{ ansible_lsb.codename }}-backports main restricted universe multiverse
+    mode: "0644"
+  when:
+    - storage_apt_needs_fix | default(false) | bool
+    - not (storage_ubuntu_sources_file.stat.exists | default(false))
+
+- name: Clean apt cache after fixing repositories
+  ansible.builtin.command: /usr/bin/apt-get clean
+  changed_when: true
+  failed_when: false
+  when: storage_apt_needs_fix | default(false) | bool
+  # Note: apt module doesn't have clean action, must use apt-get clean command
+
+- name: Update apt cache after fixing repositories
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: storage_fix_repos_update
+  changed_when: storage_fix_repos_update.rc == 0
+  failed_when: storage_fix_repos_update.rc != 0
+  when: storage_apt_needs_fix | default(false) | bool
+
+- name: Test internet connectivity before installing NFS utilities
+  ansible.builtin.command: ping -c 2 -W 2 8.8.8.8
+  register: storage_internet_test
+  changed_when: false
+  failed_when: false
+
+- name: Warn if internet connectivity is missing
+  ansible.builtin.debug:
+    msg: "WARNING: Node cannot reach internet (8.8.8.8). NFS package installation will fail. Check gateway routing and firewall rules."
+  when: storage_internet_test.rc != 0
+
+- name: Update apt cache manually before installing NFS utilities
+  ansible.builtin.shell: /usr/bin/apt-get update 2>&1
+  register: storage_apt_update_before_install
+  changed_when: storage_apt_update_before_install.rc == 0
+  failed_when: false
+  # Note: Manual update to ensure cache is fresh, even if docker role already updated it
+
+- name: Install NFS client utilities
+  ansible.builtin.apt:
+    name:
+      - nfs-common
+    state: present
+    update_cache: false
+    lock_timeout: 300
+  when: storage_internet_test.rc == 0
+
+- name: Create NFS mount points
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  loop:
+    - /mnt/nas/docker/configs
+    - /mnt/nas/docker/volumes
+    - /mnt/nas/docker/logs
+    - /mnt/nas/docker/secrets
+    - /mnt/nas/docker/backups
+
+- name: Configure NFS mounts in /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: "{{ item.server }}:{{ item.remote_path }} {{ item.local_path }} nfs4 defaults,_netdev,noauto 0 0"
+    create: true
+    state: present
+    regexp: "^{{ item.server }}:{{ item.remote_path }}"
+    mode: "0644"
+  loop:
+    - server: "172.16.30.5"
+      remote_path: "/volume1/docker/Configs"
+      local_path: "/mnt/nas/docker/configs"
+    - server: "172.16.30.5"
+      remote_path: "/volume1/docker/Volumes"
+      local_path: "/mnt/nas/docker/volumes"
+    - server: "172.16.30.5"
+      remote_path: "/volume1/docker/Logs"
+      local_path: "/mnt/nas/docker/logs"
+    - server: "172.16.30.5"
+      remote_path: "/volume1/docker/Secrets"
+      local_path: "/mnt/nas/docker/secrets"
+    - server: "172.16.30.5"
+      remote_path: "/volume1/docker/Backups"
+      local_path: "/mnt/nas/docker/backups"
+
+- name: Test NFS connectivity
+  ansible.builtin.command: showmount -e 172.16.30.5
+  register: storage_nfs_exports
+  changed_when: false
+  failed_when: false
+
+- name: Display available NFS exports
+  ansible.builtin.debug:
+    var: storage_nfs_exports.stdout_lines
+  when: storage_nfs_exports.rc == 0
+
+- name: Mount NFS shares
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.server }}:{{ item.remote_path }}"
+    fstype: nfs4
+    state: mounted
+    opts: defaults,_netdev
+  loop:
+    - path: "/mnt/nas/docker/configs"
+      server: "172.16.30.5"
+      remote_path: "/volume1/docker/Configs"
+    - path: "/mnt/nas/docker/volumes"
+      server: "172.16.30.5"
+      remote_path: "/volume1/docker/Volumes"
+    - path: "/mnt/nas/docker/logs"
+      server: "172.16.30.5"
+      remote_path: "/volume1/docker/Logs"
+    - path: "/mnt/nas/docker/secrets"
+      server: "172.16.30.5"
+      remote_path: "/volume1/docker/Secrets"
+    - path: "/mnt/nas/docker/backups"
+      server: "172.16.30.5"
+      remote_path: "/volume1/docker/Backups"
+  failed_when: false # May fail if NFS server not ready or shares don't exist yet
+
+- name: Verify NFS mounts
+  ansible.builtin.shell: grep nfs /proc/mounts || true
+  register: storage_nfs_mounts
+  changed_when: false
+  failed_when: false
+
+- name: Display mounted NFS shares
+  ansible.builtin.debug:
+    var: storage_nfs_mounts.stdout_lines

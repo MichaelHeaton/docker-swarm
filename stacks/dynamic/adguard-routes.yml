@@ -1,0 +1,54 @@
+# Traefik dynamic configuration for AdGuard Home
+# Required because AdGuard uses host networking mode (Traefik service discovery doesn't work)
+
+http:
+  routers:
+    # Public access via Traefik on VLAN 5 (for end users)
+    blocker:
+      rule: Host(`blocker.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: adguard
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow
+
+    blocker-http:
+      rule: Host(`blocker.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https
+      priority: 100
+
+    # Management access from VLAN 15
+    adguard-mgmt:
+      rule: Host(`adguard-mgmt.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: adguard
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow
+
+    adguard-mgmt-http:
+      rule: Host(`adguard-mgmt.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https
+      priority: 100
+
+  services:
+    adguard:
+      loadBalancer:
+        servers:
+          # AdGuard Web UI on VLAN 15 (management access)
+          # Using dedicated AdGuard IP: 172.16.15.2
+          - url: http://172.16.15.2:3000
+        passHostHeader: true
+

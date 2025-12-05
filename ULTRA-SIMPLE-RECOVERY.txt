@@ -1,0 +1,31 @@
+ULTRA SIMPLE RECOVERY - Copy one line at a time
+
+Step 1: See files
+ls /etc/netplan/
+
+Step 2: Fix VLAN 5
+sudo sed -i '/routes:/d' /etc/netplan/50-vlan-5-family.yaml
+sudo sed -i '/via:/d' /etc/netplan/50-vlan-5-family.yaml
+
+Step 3: Fix VLAN 10
+sudo sed -i '/routes:/d' /etc/netplan/50-vlan-10-production.yaml
+sudo sed -i '/via:/d' /etc/netplan/50-vlan-10-production.yaml
+
+Step 4: Fix VLAN 40
+sudo sed -i '/routes:/d' /etc/netplan/50-vlan-40-dmz.yaml
+sudo sed -i '/via:/d' /etc/netplan/50-vlan-40-dmz.yaml
+
+Step 5: Fix VLAN 101
+sudo sed -i '/routes:/d' /etc/netplan/50-vlan-101-guest.yaml
+sudo sed -i '/via:/d' /etc/netplan/50-vlan-101-guest.yaml
+
+Step 6: Fix primary
+sudo sed -i '/routes:/d' /etc/netplan/00-installer-config.yaml
+sudo sed -i '/via:/d' /etc/netplan/00-installer-config.yaml
+
+Step 7: Apply
+sudo netplan apply
+
+Step 8: Check
+ip route | grep default
+

@@ -1,0 +1,81 @@
+---
+# Keepalived Configuration for Virtual IP (VIP) Failover
+# Provides floating IP addresses that can move between nodes for high availability
+
+- name: Test internet connectivity before installing keepalived
+  ansible.builtin.command: ping -c 2 -W 2 8.8.8.8
+  register: keepalived_internet_test
+  changed_when: false
+  failed_when: false
+
+- name: Warn if internet connectivity is missing
+  ansible.builtin.debug:
+    msg: "WARNING: Node cannot reach internet (8.8.8.8). Keepalived package installation will fail. Check gateway routing and firewall rules."
+  when: keepalived_internet_test.rc != 0
+
+- name: Install keepalived
+  ansible.builtin.apt:
+    name:
+      - keepalived
+    state: present
+    update_cache: false
+    lock_timeout: 300
+  when: keepalived_internet_test.rc == 0
+
+- name: Check if keepalived is installed
+  ansible.builtin.command: dpkg -l | grep -q "^ii.*keepalived" || echo "not_installed"
+  register: keepalived_installed_check
+  changed_when: false
+  failed_when: false
+
+- name: Set fact if keepalived is installed
+  ansible.builtin.set_fact:
+    keepalived_is_installed: "{{ keepalived_installed_check.stdout != 'not_installed' }}"
+
+- name: Create keepalived configuration directory
+  ansible.builtin.file:
+    path: /etc/keepalived
+    state: directory
+    mode: "0755"
+  when: keepalived_is_installed | default(false) | bool
+
+- name: Detect base physical interface for keepalived (extract from VLAN interface if needed)
+  ansible.builtin.set_fact:
+    keepalived_base_interface: "{{ ansible_default_ipv4.interface.split('.')[0] }}"
+  when: keepalived_is_installed | default(false) | bool
+
+- name: Set default values for keepalived variables (if not defined in inventory)
+  ansible.builtin.set_fact:
+    keepalived_state: "{{ keepalived_state | default('BACKUP') }}"
+    keepalived_priority: "{{ keepalived_priority | default(100) }}"
+    keepalived_password: "{{ keepalived_password | default('dns-vip-secret-change-me') }}"
+    dns_vip_vlan5: "{{ dns_vip_vlan5 | default('172.16.5.2') }}"
+    dns_vip_vlan15: "{{ dns_vip_vlan15 | default('172.16.15.2') }}"
+    dns_vip_vlan101: "{{ dns_vip_vlan101 | default('172.16.101.2') }}"
+    traefik_vip_vlan5: "{{ traefik_vip_vlan5 | default('172.16.5.3') }}"
+    traefik_vip_vlan15: "{{ traefik_vip_vlan15 | default('172.16.15.3') }}"
+    traefik_vip_vlan101: "{{ traefik_vip_vlan101 | default('172.16.101.3') }}"
+    traefik_vip_vlan40: "{{ traefik_vip_vlan40 | default('172.16.40.3') }}"
+  when: keepalived_is_installed | default(false) | bool
+
+- name: Configure keepalived for DNS VIPs
+  ansible.builtin.template:
+    src: keepalived-dns-vip.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0644"
+  notify: restart keepalived
+  when: keepalived_is_installed | default(false) | bool
+
+- name: Enable and start keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    enabled: true
+    state: started
+  when: keepalived_is_installed | default(false) | bool
+
+- name: Verify keepalived status
+  ansible.builtin.command: systemctl status keepalived
+  register: keepalived_status
+  changed_when: false
+  failed_when: false
+  when: keepalived_is_installed | default(false) | bool

@@ -1,0 +1,39 @@
+FIX DHCP CONFLICT - Type these commands
+
+Step 1: Check primary interface config
+sudo cat /etc/netplan/00-installer-config.yaml
+
+Step 2: Edit primary interface to disable DHCP
+sudo nano /etc/netplan/00-installer-config.yaml
+
+Change it to look like this (NO dhcp4, NO routes):
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: false
+      addresses:
+        - 172.16.15.13/24
+      nameservers:
+        addresses:
+          - 172.16.15.1
+          - 1.1.1.1
+
+Save: Ctrl+X, Y, Enter
+
+Step 3: Remove DHCP routes
+sudo ip route del default via 172.16.15.1 dev eth0
+
+Step 4: Apply netplan
+sudo netplan apply
+
+Step 5: Verify only ONE default route
+ip route show | grep default
+
+Should show only:
+default via 172.16.15.1 dev eth0.15
+
+Step 6: Test connectivity
+ping -c 3 172.16.15.1
+
+

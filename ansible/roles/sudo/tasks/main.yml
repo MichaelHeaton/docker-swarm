@@ -1,0 +1,23 @@
+---
+# Configure passwordless sudo for packer user
+# This should have been done during image build, but we ensure it's configured here
+
+- name: Configure passwordless sudo for packer user
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/packer
+    line: "packer ALL=(ALL) NOPASSWD:ALL"
+    mode: "0440"
+    validate: "visudo -cf %s"
+    create: true
+    state: present
+
+- name: Verify passwordless sudo configuration
+  ansible.builtin.command: sudo -n echo "Passwordless sudo verified"
+  changed_when: false
+  failed_when: false
+  register: sudo_verify
+
+- name: Display sudo verification result
+  ansible.builtin.debug:
+    msg: "{{ 'Passwordless sudo is working' if sudo_verify.rc == 0 else 'Passwordless sudo verification failed - may need manual configuration' }}"
+  when: sudo_verify.rc != 0

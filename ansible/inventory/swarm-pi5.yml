@@ -10,11 +10,17 @@ all:
             swarm-pi5-01:
               ansible_host: 172.16.15.13
               ansible_user: packer
+              ansible_ssh_private_key_file: ~/.ssh/vm-access-key
               target_hostname: swarm-pi5-01
               static_ip: 172.16.15.13/24
               storage_ip: 172.16.30.13/24
               swarm_role: manager
               swarm_join_token: null  # Will be set after first manager init
+              # AdGuard Home runs on this node
+              runs_adguard: true
+              # Keepalived configuration for DNS VIP
+              keepalived_priority: 110  # Primary (highest priority)
+              keepalived_state: MASTER
             swarm-pi5-02:
               ansible_host: 172.16.15.14
               ansible_user: packer
@@ -23,6 +29,9 @@ all:
               storage_ip: 172.16.30.14/24
               swarm_role: manager
               swarm_join_token: null
+              # Keepalived configuration for DNS VIP
+              keepalived_priority: 100  # Backup
+              keepalived_state: BACKUP
             swarm-pi5-03:
               ansible_host: 172.16.15.15
               ansible_user: packer
@@ -31,6 +40,9 @@ all:
               storage_ip: 172.16.30.14/24
               swarm_role: manager
               swarm_join_token: null
+              # Keepalived configuration for DNS VIP
+              keepalived_priority: 90  # Backup (lowest priority)
+              keepalived_state: BACKUP
         swarm_workers:
           hosts:
             swarm-pi5-04:
@@ -49,6 +61,16 @@ all:
         network_dns_servers:
           - 172.16.15.1
           - 1.1.1.1
+        # Virtual IPs for high availability services
+        # These IPs can float between nodes using keepalived
+        dns_vip_vlan5: 172.16.5.2    # DNS VIP on VLAN 5 (Family)
+        dns_vip_vlan15: 172.16.15.2  # DNS VIP on VLAN 15 (Management)
+        dns_vip_vlan101: 172.16.101.2  # DNS VIP on VLAN 101 (Guest)
+        traefik_vip_vlan5: 172.16.5.3    # Traefik VIP on VLAN 5 (Family)
+        traefik_vip_vlan15: 172.16.15.3  # Traefik VIP on VLAN 15 (Management)
+        traefik_vip_vlan101: 172.16.101.3  # Traefik VIP on VLAN 101 (Guest)
+        traefik_vip_vlan40: 172.16.40.3  # Traefik VIP on VLAN 40 (DMZ)
+        keepalived_password: "{{ vault_keepalived_password | default('change-me-in-vault') }}"
         # Docker Swarm configuration
         swarm_advertise_addr: "{{ ansible_default_ipv4.address }}"
         swarm_listen_addr: "0.0.0.0:2377"
@@ -57,16 +79,29 @@ all:
           - id: 5
             name: family
             subnet: 172.16.5.0/24
+            adguard_ip: 172.16.5.2/32  # DNS VIP (floating via keepalived)
           - id: 10
             name: production
             subnet: 172.16.10.0/24
           - id: 15
             name: mgmt
             subnet: 172.16.15.0/24
+            adguard_ip: 172.16.15.2/32  # DNS VIP (floating via keepalived)
+          - id: 20
+            name: lab
+            subnet: 172.16.20.0/24
+          - id: 30
+            name: storage
+            subnet: 172.16.30.0/24
+            # Storage VLAN - no default route, storage-only network
           - id: 40
             name: dmz
             subnet: 172.16.40.0/24
           - id: 101
             name: guest
             subnet: 172.16.101.0/24
+            adguard_ip: 172.16.101.2/32  # DNS VIP (floating via keepalived)
+          - id: 200
+            name: rv
+            subnet: 172.16.200.0/24
 

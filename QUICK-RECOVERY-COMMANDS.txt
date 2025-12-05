@@ -1,0 +1,43 @@
+# Quick Recovery Commands - Copy/Paste for Each Node
+# Run these on swarm-pi5-01, swarm-pi5-03, and swarm-pi5-04 via console
+
+# ============================================
+# ONE-LINER FIX (Easiest - Copy/Paste This)
+# ============================================
+
+for file in /etc/netplan/50-vlan-{5-family,10-production,40-dmz,101-guest}.yaml /etc/netplan/00-installer-config.yaml; do [ -f "$file" ] && sudo sed -i '/routes:/,/via:/d' "$file"; done && sudo netplan apply && echo "✅ Fixed! Check: ip route show | grep default"
+
+# ============================================
+# VERIFICATION COMMANDS
+# ============================================
+
+# Should show only ONE default route:
+ip route show | grep default
+
+# Should be able to ping gateway:
+ping -c 3 172.16.15.1
+
+# ============================================
+# INDIVIDUAL COMMANDS (If one-liner fails)
+# ============================================
+
+sudo sed -i '/routes:/,/via:/d' /etc/netplan/50-vlan-5-family.yaml
+sudo sed -i '/routes:/,/via:/d' /etc/netplan/50-vlan-10-production.yaml
+sudo sed -i '/routes:/,/via:/d' /etc/netplan/50-vlan-40-dmz.yaml
+sudo sed -i '/routes:/,/via:/d' /etc/netplan/50-vlan-101-guest.yaml
+sudo sed -i '/routes:/,/via:/d' /etc/netplan/00-installer-config.yaml
+sudo netplan apply
+
+# ============================================
+# CHECK RESULTS
+# ============================================
+
+# Routes (should be ONE default route):
+ip route show | grep default
+
+# Interfaces:
+ip addr show | grep -E "eth0\.(5|10|15|40|101)" | grep "inet "
+
+# Connectivity:
+ping -c 2 172.16.15.1
+

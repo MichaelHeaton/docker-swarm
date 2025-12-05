@@ -16,11 +16,11 @@
       - vlan
       - bridge-utils
     state: present
-    update_cache: true
+    update_cache: false
     lock_timeout: 300
 
 - name: Load 8021q module for VLAN support
-  ansible.builtin.modprobe:
+  community.general.modprobe:
     name: 8021q
     state: present
     persistent: present
@@ -34,41 +34,684 @@
 
 - name: Detect primary network interface
   ansible.builtin.set_fact:
-    primary_interface: "{{ ansible_default_ipv4.interface }}"
+    network_primary_interface: "{{ ansible_default_ipv4.interface }}"
+
+- name: Extract base physical interface from VLAN interface
+  ansible.builtin.set_fact:
+    network_primary_interface: "{{ network_primary_interface.split('.')[0] }}"
 
 - name: Display primary network interface
   ansible.builtin.debug:
-    msg: "Primary network interface: {{ primary_interface }}"
+    msg: "Primary network interface: {{ network_primary_interface }} (base physical interface)"
+
+- name: Find all netplan configuration files
+  ansible.builtin.find:
+    paths: /etc/netplan
+    patterns: "*.yaml,*.yml"
+  register: network_netplan_files
+
+- name: Find netplan file that configures base interface
+  ansible.builtin.shell: |
+    for file in /etc/netplan/*.yaml /etc/netplan/*.yml; do
+      [ -f "$file" ] && grep -q "{{ network_primary_interface }}:" "$file" && echo "$file" && break
+    done
+  register: network_base_netplan_file
+  changed_when: false
+  failed_when: false
+
+- name: Check if base interface netplan file has static IP configured
+  ansible.builtin.shell: |
+    if [ -f "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}" ]; then
+      grep -q "{{ static_ip }}" "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}" && echo "yes" || echo "no"
+    else
+      echo "no"
+    fi
+  register: network_base_has_static_ip_in_file
+  changed_when: false
+  failed_when: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+
+- name: Skip base interface DHCP disable if static IP not configured (configure VLANs first)
+  ansible.builtin.debug:
+    msg: "Base interface static IP not configured in netplan. Will configure VLANs first, then handle base interface."
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_base_has_static_ip_in_file.stdout | default('no') == 'no'
+
+- name: Disable DHCP on base network interface (if still enabled and static IP is configured)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*dhcp4:\s*(true|yes)'
+    replace: "      dhcp4: false"
+    backup: true
+  register: network_base_dhcp4_disable
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_has_static_ip_in_file.stdout | default('yes') == 'yes'
+
+- name: Disable DHCP6 on base network interface (if still enabled)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*dhcp6:\s*(true|yes)'
+    replace: "      dhcp6: false"
+    backup: true
+  register: network_base_dhcp6_disable
+  when:
+    - network_base_netplan_file.stdout != ""
+    # Only disable DHCP6 if VLAN 15 is being configured (base interface will be replaced by eth0.15)
+    # If VLAN 15 is skipped, base interface keeps DHCP and we shouldn't modify it
+    - network_base_has_static_ip_in_file.stdout | default('no') == 'yes'
+
+- name: Comment out default routes on base interface
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*routes:'
+    replace: "      # routes:  # Disabled - default route only on VLAN 15"
+    backup: false
+  register: network_base_routes_disable
+  when:
+    - network_base_netplan_file.stdout != ""
+    # Only comment routes if VLAN 15 is being configured (base interface will be replaced by eth0.15)
+    # If VLAN 15 is skipped, base interface keeps its routes and we shouldn't modify it
+    - network_base_has_static_ip_in_file.stdout | default('no') == 'yes'
+
+- name: Set fact if base interface config needs to be applied
+  ansible.builtin.set_fact:
+    network_base_needs_apply: >-
+      {{ (network_base_dhcp4_disable.changed | default(false)) or
+      (network_base_dhcp6_disable.changed | default(false)) or
+      (network_base_routes_disable.changed | default(false)) }}
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_has_static_ip_in_file.stdout | default('yes') == 'yes'
+
+- name: Validate base interface netplan before applying
+  ansible.builtin.command: netplan --debug generate
+  register: network_base_netplan_validate
+  changed_when: false
+  failed_when: network_base_netplan_validate.rc != 0
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_needs_apply | default(false) | bool
+
+- name: Apply base interface netplan changes (disable DHCP, comment routes) BEFORE VLAN config
+  ansible.builtin.command: netplan apply
+  register: network_base_netplan_apply_before_vlan
+  async: 30
+  poll: 10
+  changed_when: network_base_needs_apply | default(false) | bool
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_needs_apply | default(false) | bool
+    - network_base_netplan_validate.rc == 0
+  ignore_errors: true
+
+- name: Wait for base interface to stabilize
+  ansible.builtin.pause:
+    seconds: 3
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_needs_apply | default(false) | bool
+    - network_base_netplan_validate.rc == 0
+
+- name: Verify base interface connectivity before VLAN configuration
+  ansible.builtin.command: ping -c 2 -W 2 {{ network_gateway | default('172.16.15.1') }}
+  register: network_base_connectivity_before_vlan
+  changed_when: false
+  failed_when: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_needs_apply | default(false) | bool
+
+- name: Fail if base interface connectivity lost before VLAN config
+  ansible.builtin.fail:
+    msg: "Base interface connectivity lost after applying base interface changes. Cannot proceed with VLAN configuration."
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_base_needs_apply | default(false) | bool
+    - network_base_connectivity_before_vlan.rc != 0
+
+- name: Remove old VLAN netplan files before validation (cleanup from previous runs)
+  ansible.builtin.find:
+    paths: /etc/netplan
+    patterns: "50-vlan-*.yaml"
+  register: network_old_vlan_files
+
+- name: Delete old VLAN netplan files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ network_old_vlan_files.files | default([]) }}"
+  when: network_old_vlan_files.files is defined
+  failed_when: false
+
+- name: Remove any incorrectly created nested VLAN interfaces (cleanup)
+  ansible.builtin.shell: |
+    set -o pipefail
+    # Find and remove any VLAN interfaces created on top of VLAN interfaces (e.g., eth0.15.5)
+    for iface in $(ip link show | grep -oE '{{ network_primary_interface }}\.[0-9]+\.[0-9]+' | cut -d: -f1); do
+      ip link del "$iface" 2>/dev/null || true
+    done
+  register: network_cleanup_nested_vlans
+  failed_when: false
+  changed_when: network_cleanup_nested_vlans.rc == 0
+  when: swarm_vlans is defined
 
 - name: Create VLAN interfaces for Traefik multi-homed networking
   ansible.builtin.command: >
-    ip link add link {{ primary_interface }} name {{ primary_interface }}.{{ item.id }} type vlan id {{ item.id }}
-  register: vlan_create
+    ip link add link {{ network_primary_interface }} name {{ network_primary_interface }}.{{ item.id }} type vlan id {{ item.id }}
+  register: network_vlan_create
   failed_when: false
-  changed_when: vlan_create.rc != 0
+  changed_when: network_vlan_create.rc != 0
   loop: "{{ swarm_vlans }}"
   when: swarm_vlans is defined
+
+- name: Extract node number from static IP
+  ansible.builtin.set_fact:
+    network_node_number: "{{ (static_ip | default('172.16.15.13/24') | regex_search('\\.[0-9]+/') | regex_replace('^\\.|/$', '')) | int }}"
+
+- name: Build VLAN configuration with IPs (skip VLAN 15 if base interface already has the IP)
+  ansible.builtin.set_fact:
+    network_vlan_configs: "{{ network_vlan_configs | default([]) + [vlan_config] }}"
+  vars:
+    node_ip: "{{ item.subnet | regex_replace('/24$', '') | regex_replace('\\.0$', '') }}.{{ network_node_number }}/24"
+    gateway_ip: "{{ item.subnet | regex_replace('/24$', '') | regex_replace('\\.0$', '') }}.1"
+    # Only add node IP - VIPs (adguard_ip, traefik_vip) are managed by keepalived, not netplan
+    addresses_list: "{{ [node_ip] }}"
+    vlan_config:
+      id: "{{ item.id }}"
+      name: "{{ item.name }}"
+      subnet: "{{ item.subnet }}"
+      node_ip: "{{ node_ip }}"
+      gateway: "{{ gateway_ip }}"
+      adguard_ip: "{{ item.adguard_ip | default('') }}"
+      addresses: "{{ addresses_list }}"
+  loop: "{{ swarm_vlans }}"
+  when:
+    - swarm_vlans is defined
+    # Skip VLAN 15 if base interface already has the management IP (via DHCP or static)
+    # The base interface (eth0) is already on VLAN 15 (untagged), so we don't need eth0.15
+    - not (item.id == 15 and network_base_has_static_ip_in_file.stdout | default('no') == 'no')
+
+- name: Validate Netplan configuration before applying
+  ansible.builtin.command: netplan --debug generate
+  register: network_netplan_validate
+  changed_when: false
+  failed_when: network_netplan_validate.rc != 0
+  delegate_to: localhost
+  run_once: true
+  when: false # Disabled for now - validate on target instead
+
+- name: Remove old VLAN netplan files to ensure clean regeneration
+  ansible.builtin.file:
+    path: "/etc/netplan/50-vlan-{{ item.id }}-{{ item.name }}.yaml"
+    state: absent
+  loop: "{{ network_vlan_configs | default([]) }}"
+  when: network_vlan_configs is defined
+  failed_when: false
 
 - name: Configure VLAN interfaces with Netplan
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: netplan-vlan.yaml.j2
     dest: "/etc/netplan/50-vlan-{{ item.id }}-{{ item.name }}.yaml"
-    content: |
-      network:
-        version: 2
-        vlans:
-          {{ primary_interface }}.{{ item.id }}:
-            id: {{ item.id }}
-            link: {{ primary_interface }}
-            dhcp4: false
-            # IP addresses will be configured by Traefik container or manually
-            # addresses: []
-    mode: "0644"
-  loop: "{{ swarm_vlans }}"
-  when: swarm_vlans is defined
-  notify: apply netplan
+    mode: "0600"
+  vars:
+    vlan_item: "{{ item }}"
+    primary_if: "{{ network_primary_interface }}"
+    network_gw: "{{ network_gateway | default('172.16.15.1') }}"
+  loop: "{{ network_vlan_configs | default([]) }}"
+  when: network_vlan_configs is defined
+
+- name: Validate Netplan configuration (safety check)
+  ansible.builtin.command: netplan --debug generate
+  register: network_netplan_validate_target
+  changed_when: false
+  failed_when:
+    - network_netplan_validate_target.rc != 0
+  when: network_vlan_configs is defined
+
+- name: Check for conflicting default routes in validation output
+  ansible.builtin.fail:
+    msg: "Netplan validation detected conflicting default routes. Check /etc/netplan/ files and ensure only VLAN 15 has a default route."
+  when:
+    - network_vlan_configs is defined
+    - "'Conflicting default route' in (network_netplan_validate_target.stderr | default('') + network_netplan_validate_target.stdout | default(''))"
+
+- name: Check if base interface currently has IP address assigned (runtime check)
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip addr show {{ network_primary_interface }} 2>/dev/null | grep -E '^\s+inet ' | awk '{print $2}' | cut -d'/' -f1 | head -1 || echo ""
+  register: network_base_current_ip
+  changed_when: false
+  failed_when: false
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+
+- name: Extract IP address from static_ip variable (without /24)
+  ansible.builtin.set_fact:
+    network_static_ip_address: "{{ static_ip | regex_replace('/24$', '') }}"
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+
+- name: Debug runtime IP check results
+  ansible.builtin.debug:
+    msg: "Base interface current IP: '{{ network_base_current_ip.stdout | default('') }}', VLAN 15 will have: '{{ network_static_ip_address | default('') }}'"
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+
+- name: Check if base interface has conflicting IP with VLAN 15 (runtime conflict detection)
+  ansible.builtin.set_fact:
+    network_base_runtime_ip_conflict: >-
+      {{ (network_base_current_ip.stdout | default('') | trim == network_static_ip_address | default('') | trim) and
+      (network_base_current_ip.stdout | default('') | trim != '') }}
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+    - network_base_current_ip.stdout is defined
+
+- name: Force runtime conflict to true if base interface has IP matching VLAN 15 (safety override)
+  ansible.builtin.set_fact:
+    network_base_runtime_ip_conflict: true
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+    - network_base_current_ip.stdout is defined
+    - network_base_current_ip.stdout | default('') | trim != ''
+    - network_static_ip_address is defined
+    - network_base_current_ip.stdout | default('') | trim == network_static_ip_address | default('') | trim
+
+- name: Debug runtime conflict detection result
+  ansible.builtin.debug:
+    msg: "Runtime IP conflict detected: {{ network_base_runtime_ip_conflict | default(false) }}"
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - static_ip is defined
+
+- name: Check if base interface still has IP address in netplan (before applying VLAN config)
+  ansible.builtin.shell: |
+    base_file="{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    if [ -f "$base_file" ]; then
+      grep -q "{{ static_ip | regex_replace('/24$', '') }}" "$base_file" && echo "yes" || echo "no"
+    else
+      echo "no"
+    fi
+  register: network_base_has_ip_before_vlan_apply
+  changed_when: false
+  failed_when: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+
+- name: Check if VLAN 15 will have the same IP as base interface (conflict detection)
+  ansible.builtin.set_fact:
+    network_ip_conflict_detected: >-
+      {{ (network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes') and
+      ((network_vlan_configs | selectattr('id', 'equalto', 15) | map(attribute='node_ip') | first | default('') |
+      regex_search(static_ip | regex_replace('/24$', ''))) | length > 0) }}
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes'
+
+- name: Disable DHCP on base interface if runtime IP conflict detected (before VLAN apply)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*dhcp4:\s*(true|yes)'
+    replace: "      dhcp4: false"
+    backup: true
+  register: network_base_disable_dhcp_for_conflict
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - (network_base_runtime_ip_conflict | default(false) | bool) or
+      ((network_base_current_ip.stdout | default('') | trim != '') and
+      (network_base_current_ip.stdout | default('') | trim == network_static_ip_address | default('') | trim))
+
+- name: Comment out addresses section on base interface if runtime conflict (remove IP before VLAN apply)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: "^      addresses:.*"
+    replace: "      # addresses:  # Removed - IP will be on VLAN 15 only"
+    backup: false
+  register: network_base_remove_addresses_for_runtime_conflict
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - (network_base_runtime_ip_conflict | default(false) | bool) or
+      ((network_base_current_ip.stdout | default('') | trim != '') and
+      (network_base_current_ip.stdout | default('') | trim == network_static_ip_address | default('') | trim))
+
+- name: Comment out individual IP address lines on base interface (for runtime conflict)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*-\s+{{ static_ip }}$'
+    replace: "        # - {{ static_ip }}  # Moved to VLAN 15"
+    backup: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+
+- name: Validate netplan after removing IP from base interface (runtime conflict)
+  ansible.builtin.command: netplan --debug generate
+  register: network_netplan_validate_after_runtime_conflict_fix
+  changed_when: false
+  failed_when: network_netplan_validate_after_runtime_conflict_fix.rc != 0
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+    - (network_base_disable_dhcp_for_conflict.changed | default(false) | bool) or
+      (network_base_remove_addresses_for_runtime_conflict.changed | default(false) | bool)
+
+- name: Apply base interface netplan changes if runtime conflict detected (remove IP before VLAN apply)
+  ansible.builtin.command: netplan apply
+  register: network_base_apply_for_conflict
+  async: 30
+  poll: 10
+  changed_when: >-
+    (network_base_disable_dhcp_for_conflict.changed | default(false) | bool) or
+    (network_base_remove_addresses_for_runtime_conflict.changed | default(false) | bool)
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+    - network_netplan_validate_after_runtime_conflict_fix.rc == 0
+    - (network_base_disable_dhcp_for_conflict.changed | default(false) | bool) or
+      (network_base_remove_addresses_for_runtime_conflict.changed | default(false) | bool)
+  ignore_errors: true
+
+- name: Wait for base interface to stabilize after disabling DHCP
+  ansible.builtin.pause:
+    seconds: 3
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+    - network_base_disable_dhcp_for_conflict.changed | default(false) | bool
+
+- name: Verify base interface still has connectivity after disabling DHCP
+  ansible.builtin.command: ping -c 2 -W 2 {{ network_gateway | default('172.16.15.1') }}
+  register: network_base_connectivity_after_dhcp_disable
+  changed_when: false
+  failed_when: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+    - network_base_disable_dhcp_for_conflict.changed | default(false) | bool
+
+- name: Fail if connectivity lost after disabling DHCP
+  ansible.builtin.fail:
+    msg: "Base interface connectivity lost after disabling DHCP. Cannot proceed with VLAN configuration."
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_runtime_ip_conflict | default(false) | bool
+    - network_base_disable_dhcp_for_conflict.changed | default(false) | bool
+    - network_base_connectivity_after_dhcp_disable.rc != 0
+
+- name: Remove IP from base interface BEFORE applying VLAN config (prevent routing conflict)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: "^      addresses:.*"
+    replace: "      # addresses:  # Removed - IP addresses are on VLAN interfaces only"
+    backup: true
+  register: network_base_remove_addresses_before_vlan
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - (network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes') or
+      (network_base_runtime_ip_conflict | default(false) | bool)
+    - network_ip_conflict_detected | default(false) | bool
+
+- name: Remove individual IP address lines from base interface (before VLAN apply)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*- {{ static_ip }}$'
+    replace: "        # - {{ static_ip }}  # Moved to VLAN interface"
+    backup: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes'
+    - network_ip_conflict_detected | default(false) | bool
+
+- name: Validate netplan after removing IP from base interface (before VLAN apply)
+  ansible.builtin.command: netplan --debug generate
+  register: network_netplan_validate_after_base_ip_removal
+  changed_when: false
+  failed_when: network_netplan_validate_after_base_ip_removal.rc != 0
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes'
+    - network_ip_conflict_detected | default(false) | bool
+    - network_base_remove_addresses_before_vlan.changed | default(false) | bool
+
+- name: Warn if base interface still has IP (non-conflicting case)
+  ansible.builtin.debug:
+    msg: "WARNING: Base interface still has IP address, but no conflict detected with VLAN 15. Proceeding with VLAN configuration."
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_has_ip_before_vlan_apply.stdout | default('no') == 'yes'
+    - not (network_ip_conflict_detected | default(false) | bool)
+
+- name: Re-validate netplan if base interface IP was removed (before VLAN apply)
+  ansible.builtin.command: netplan --debug generate
+  register: network_netplan_validate_final
+  changed_when: false
+  failed_when: network_netplan_validate_final.rc != 0
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_base_remove_addresses_before_vlan.changed | default(false) | bool
+    - network_netplan_validate_after_base_ip_removal.rc == 0
+
+- name: Check if VLAN 15 is in VLAN configs (determine if we need to handle base interface)
+  ansible.builtin.set_fact:
+    network_vlan15_configured: >-
+      {{ network_vlan_configs | default([]) | selectattr('id', 'equalto', 15) | list | length > 0 }}
+  when: network_vlan_configs is defined
+
+- name: Only disable DHCP and remove IP from base interface if VLAN 15 is being configured
+  ansible.builtin.debug:
+    msg: "VLAN 15 is NOT in VLAN configs - base interface (eth0) will keep its IP for management. Only other VLANs will be configured."
+  when:
+    - network_vlan_configs is defined
+    - not (network_vlan15_configured | default(false) | bool)
+
+- name: Apply VLAN netplan configuration (base interface unchanged - only VLANs configured)
+  ansible.builtin.command: netplan apply
+  register: network_netplan_apply_result
+  async: 30
+  poll: 10
+  changed_when: network_vlan_configs is defined
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+  ignore_errors: true
+  # Note: Base interface (eth0) keeps its existing IP (via DHCP or static)
+  # Only VLAN interfaces for OTHER VLANs are configured (5, 10, 20, 30, 40, 101, 200)
+  # VLAN 15 is skipped since eth0 already handles management network
+
+- name: Wait for network to stabilize after netplan apply
+  ansible.builtin.pause:
+    seconds: 5
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+
+- name: Verify only one default route after applying
+  ansible.builtin.command: ip route show default
+  register: network_default_routes
+  changed_when: false
+  failed_when: false
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+
+- name: Fail if multiple default routes detected
+  ansible.builtin.fail:
+    msg: "Multiple default routes detected after netplan apply. This will break network connectivity. Routes: {{ network_default_routes.stdout_lines }}"
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_default_routes.stdout_lines | length > 1
+
+- name: Verify network connectivity after netplan apply
+  ansible.builtin.command: ping -c 2 -W 2 {{ network_gateway | default('172.16.15.1') }}
+  register: network_connectivity_check
+  changed_when: false
+  failed_when: false
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+
+- name: Verify VLAN 15 interface has IP address and is working
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip addr show {{ network_primary_interface }}.15 | grep -q "{{ static_ip | regex_replace('/24$', '') }}" && echo "yes" || echo "no"
+  register: network_vlan15_has_ip
+  changed_when: false
+  failed_when: false
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+
+- name: Remove IP address from base interface (only after VLAN 15 is confirmed working)
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: "^      addresses:.*"
+    replace: "      # addresses:  # Removed - IP addresses are on VLAN interfaces only"
+    backup: true
+  register: network_base_remove_addresses
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - not (network_base_remove_addresses_before_vlan.changed | default(false) | bool)
+
+- name: Remove individual IP address lines from base interface
+  ansible.builtin.replace:
+    path: "{{ network_base_netplan_file.stdout | default('/etc/netplan/00-installer-config.yaml') }}"
+    regexp: '^\s*- {{ static_ip }}$'
+    replace: "        # - {{ static_ip }}  # Moved to VLAN interface"
+    backup: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - static_ip is defined
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - not (network_base_remove_addresses_before_vlan.changed | default(false) | bool)
+
+- name: Apply base interface netplan changes to remove IP (only if VLAN 15 is working)
+  ansible.builtin.command: netplan apply
+  register: network_base_remove_ip_apply
+  async: 30
+  poll: 10
+  changed_when: network_base_remove_addresses.changed | default(false) | bool
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - network_base_remove_addresses.changed | default(false) | bool
+  ignore_errors: true
+
+- name: Wait for network to stabilize after removing IP from base interface
+  ansible.builtin.pause:
+    seconds: 3
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - network_base_remove_addresses.changed | default(false) | bool
+
+- name: Verify connectivity still works after removing IP from base interface
+  ansible.builtin.command: ping -c 2 -W 2 {{ network_gateway | default('172.16.15.1') }}
+  register: network_connectivity_after_base_ip_removal
+  changed_when: false
+  failed_when: false
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - network_base_remove_addresses.changed | default(false) | bool
+
+- name: Warn if connectivity lost after removing IP from base interface
+  ansible.builtin.debug:
+    msg: "WARNING: Network connectivity lost after removing IP from base interface. Node may need manual recovery."
+  when:
+    - network_base_netplan_file.stdout != ""
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc == 0
+    - network_vlan15_has_ip.stdout | default('no') == 'yes'
+    - network_base_remove_addresses.changed | default(false) | bool
+    - network_connectivity_after_base_ip_removal.rc != 0
+
+- name: Warn if connectivity lost after netplan apply
+  ansible.builtin.debug:
+    msg: "WARNING: Network connectivity check failed after netplan apply. Node may need manual recovery."
+  when:
+    - network_vlan_configs is defined
+    - network_netplan_validate_target.rc == 0
+    - network_connectivity_check.rc != 0
 
 - name: Configure firewall rules for Docker Swarm
-  ansible.builtin.ufw:
+  community.general.ufw:
     rule: allow
     port: "{{ item }}"
     proto: tcp
@@ -79,7 +722,7 @@
   notify: reload ufw
 
 - name: Configure firewall rules for Docker Swarm UDP
-  ansible.builtin.ufw:
+  community.general.ufw:
     rule: allow
     port: "{{ item }}"
     proto: udp
@@ -90,16 +733,16 @@
   notify: reload ufw
 
 - name: Allow Docker overlay network traffic
-  ansible.builtin.ufw:
+  community.general.ufw:
     rule: allow
     from_ip: "{{ swarm_vlans | map(attribute='subnet') | list | join(',') }}"
     comment: "Docker overlay networks"
   when: swarm_vlans is defined
-  ignore_errors: true # UFW may not support from_ip in all versions
+  failed_when: false # UFW may not support from_ip in all versions
   notify: reload ufw
 
 - name: Configure kernel sysctls for multi-VLAN Traefik support
-  ansible.builtin.sysctl:
+  ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
@@ -116,6 +759,7 @@
   ansible.builtin.blockinfile:
     path: /etc/sysctl.d/99-traefik-vlan.conf
     create: true
+    mode: "0644"
     marker: "# {mark} ANSIBLE MANAGED BLOCK - TRAEFIK VLAN SUPPORT"
     block: |
       # Kernel parameters for Traefik multi-VLAN support

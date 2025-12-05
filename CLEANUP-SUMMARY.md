@@ -7,6 +7,7 @@
 ### 1. Archived Troubleshooting Documents
 
 Moved 50+ troubleshooting and fix documents to `archive/` directory:
+
 - Traefik troubleshooting (VLAN access, ports, DNS, firewall)
 - DNS configuration documents (mapping proposals, fix guides)
 - Service deployment troubleshooting (Uptime Kuma, Homepage)
@@ -30,12 +31,14 @@ Moved 50+ troubleshooting and fix documents to `archive/` directory:
 Updated `specs-homelab/` to reflect current Docker Swarm deployment:
 
 - **stacks/infrastructure.md**:
+
   - Updated Homepage deployment (Docker Swarm instead of NAS01)
   - Added Uptime Kuma status monitoring service
   - Updated AdGuard Home status (Running instead of Planned)
   - Updated stack components summary with current status
 
 - **stacks/automation.md**:
+
   - Updated Traefik deployment (Docker Swarm instead of NAS01)
   - Updated Portainer deployment (Docker Swarm instead of NAS01)
   - Updated Traefik version (v2.11) and configuration details
@@ -62,6 +65,7 @@ Updated `specs-homelab/` to reflect current Docker Swarm deployment:
 ## Current Documentation Structure
 
 ### Main Documentation (9 files)
+
 1. `README.md` - Main project documentation
 2. `SERVICES-STATUS.md` - Current service status
 3. `DEPLOYMENT-SUMMARY.md` - Quick deployment reference
@@ -74,17 +78,20 @@ Updated `specs-homelab/` to reflect current Docker Swarm deployment:
 10. `UPTIME-KUMA-NETWORK-FIX.md` - Uptime Kuma network fix
 
 ### Stack Documentation (3 files in `stacks/`)
+
 1. `DEPLOY.md` - Complete deployment guide
 2. `homepage-config-example.md` - Homepage configuration examples
 3. `uptime-kuma-monitors.md` - Uptime Kuma monitor configuration
 
 ### Archived Documentation (50 files in `archive/`)
+
 - Historical troubleshooting and fix documents
 - See `archive/README.md` for details
 
 ## Specs Alignment
 
 All documentation now aligns with:
+
 - ✅ `specs-homelab/stacks/infrastructure.md` - Updated with current deployment
 - ✅ `specs-homelab/stacks/automation.md` - Updated with current deployment
 - ✅ `specs-homelab/reference/common-values.md` - Updated DNS names
@@ -96,4 +103,3 @@ All documentation now aligns with:
 2. ✅ Specs updated with current deployment status
 3. ✅ All services documented with correct DNS names
 4. ⏳ Continue deploying additional services as needed
-

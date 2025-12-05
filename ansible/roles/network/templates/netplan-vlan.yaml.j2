@@ -1,0 +1,21 @@
+network:
+  version: 2
+  vlans:
+    {{ primary_if }}.{{ vlan_item.id }}:
+      id: {{ vlan_item.id }}
+      link: {{ primary_if }}
+      dhcp4: false
+      addresses:
+{% for addr in vlan_item.addresses %}
+        - {{ addr }}
+{% endfor %}
+{% if vlan_item.id == 15 %}
+      routes:
+        - to: 0.0.0.0/0
+          via: {{ vlan_item.gateway }}
+{% endif %}
+      nameservers:
+        addresses:
+          - {{ network_gw }}
+          - 1.1.1.1
+
