@@ -1,6 +1,8 @@
 ---
-# Storage Configuration - NFS Mounts for Docker Volumes
-# Mounts NAS01 Docker shares for persistent storage
+# Storage Configuration - NFS Mounts for Docker Volumes and Media Shares
+# Mounts NAS02 dockers share for Docker persistent storage
+# Mounts NAS02 media shares (streaming, family, stash) for Plex and related services
+# Mounts NAS01 backup share for Docker backups
 
 - name: Wait for apt lock to be released
   ansible.builtin.wait_for:
@@ -135,71 +137,122 @@
     owner: root
     group: root
   loop:
-    - /mnt/nas/docker/configs
-    - /mnt/nas/docker/volumes
-    - /mnt/nas/docker/logs
-    - /mnt/nas/docker/secrets
-    - /mnt/nas/docker/backups
+    # Docker storage - both medium and high IOPS
+    - /mnt/nas/dockers # Medium IOPS from NAS02
+    - /mnt/nas/dockers-iops # High IOPS from NAS01
+    # Media shares from NAS02 (for Plex and related services)
+    - /mnt/nas/media_streaming
+    - /mnt/nas/media_family
+    - /mnt/nas/media_stashapp
+    # Backup share from NAS01
+    - /mnt/nas/backups
 
 - name: Configure NFS mounts in /etc/fstab
   ansible.builtin.lineinfile:
     path: /etc/fstab
-    line: "{{ item.server }}:{{ item.remote_path }} {{ item.local_path }} nfs4 defaults,_netdev,noauto 0 0"
+    line: "{{ item.server }}:{{ item.remote_path }} {{ item.local_path }} {{ item.fstype }} {{ item.opts }} 0 0"
     create: true
     state: present
     regexp: "^{{ item.server }}:{{ item.remote_path }}"
     mode: "0644"
   loop:
+    # Docker storage - both medium and high IOPS
+    - server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/dockers"
+      local_path: "/mnt/nas/dockers"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
     - server: "172.16.30.5"
-      remote_path: "/volume1/docker/Configs"
-      local_path: "/mnt/nas/docker/configs"
+      remote_path: "/volume1/dockers-iops"
+      local_path: "/mnt/nas/dockers-iops"
+      fstype: "nfs4"
+      opts: "defaults,_netdev"
+    # Media shares from NAS02 (NFSv3)
+    - server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_streaming"
+      local_path: "/mnt/nas/media_streaming"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    - server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_family"
+      local_path: "/mnt/nas/media_family"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    - server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_stashapp"
+      local_path: "/mnt/nas/media_stashapp"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    # Backup share from NAS01 (NFSv4)
     - server: "172.16.30.5"
-      remote_path: "/volume1/docker/Volumes"
-      local_path: "/mnt/nas/docker/volumes"
-    - server: "172.16.30.5"
-      remote_path: "/volume1/docker/Logs"
-      local_path: "/mnt/nas/docker/logs"
-    - server: "172.16.30.5"
-      remote_path: "/volume1/docker/Secrets"
-      local_path: "/mnt/nas/docker/secrets"
-    - server: "172.16.30.5"
-      remote_path: "/volume1/docker/Backups"
-      local_path: "/mnt/nas/docker/backups"
+      remote_path: "/volume3/backup"
+      local_path: "/mnt/nas/backups"
+      fstype: "nfs4"
+      opts: "defaults,_netdev"
 
-- name: Test NFS connectivity
-  ansible.builtin.command: showmount -e 172.16.30.5
-  register: storage_nfs_exports
+- name: Test NFS connectivity to NAS02
+  ansible.builtin.command: showmount -e 172.16.30.4
+  register: storage_nfs_exports_nas02
   changed_when: false
   failed_when: false
 
-- name: Display available NFS exports
+- name: Test NFS connectivity to NAS01
+  ansible.builtin.command: showmount -e 172.16.30.5
+  register: storage_nfs_exports_nas01
+  changed_when: false
+  failed_when: false
+
+- name: Display available NFS exports from NAS02
   ansible.builtin.debug:
-    var: storage_nfs_exports.stdout_lines
-  when: storage_nfs_exports.rc == 0
+    var: storage_nfs_exports_nas02.stdout_lines
+  when: storage_nfs_exports_nas02.rc == 0
+
+- name: Display available NFS exports from NAS01
+  ansible.builtin.debug:
+    var: storage_nfs_exports_nas01.stdout_lines
+  when: storage_nfs_exports_nas01.rc == 0
 
 - name: Mount NFS shares
   ansible.posix.mount:
     path: "{{ item.path }}"
     src: "{{ item.server }}:{{ item.remote_path }}"
-    fstype: nfs4
+    fstype: "{{ item.fstype }}"
     state: mounted
-    opts: defaults,_netdev
+    opts: "{{ item.opts }}"
   loop:
-    - path: "/mnt/nas/docker/configs"
+    # Docker storage - both medium and high IOPS
+    - path: "/mnt/nas/dockers"
+      server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/dockers"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    - path: "/mnt/nas/dockers-iops"
       server: "172.16.30.5"
-      remote_path: "/volume1/docker/Configs"
-    - path: "/mnt/nas/docker/volumes"
+      remote_path: "/volume1/dockers-iops"
+      fstype: "nfs4"
+      opts: "defaults,_netdev"
+    # Media shares from NAS02 (NFSv3)
+    - path: "/mnt/nas/media_streaming"
+      server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_streaming"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    - path: "/mnt/nas/media_family"
+      server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_family"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    - path: "/mnt/nas/media_stashapp"
+      server: "172.16.30.4"
+      remote_path: "/var/nfs/shared/media_stashapp"
+      fstype: "nfs"
+      opts: "vers=3,rsize=1048576,wsize=1048576,hard,intr,timeo=600,actimeo=600,_netdev"
+    # Backup share from NAS01 (NFSv4)
+    - path: "/mnt/nas/backups"
       server: "172.16.30.5"
-      remote_path: "/volume1/docker/Volumes"
-    - path: "/mnt/nas/docker/logs"
-      server: "172.16.30.5"
-      remote_path: "/volume1/docker/Logs"
-    - path: "/mnt/nas/docker/secrets"
-      server: "172.16.30.5"
-      remote_path: "/volume1/docker/Secrets"
-    - path: "/mnt/nas/docker/backups"
-      server: "172.16.30.5"
-      remote_path: "/volume1/docker/Backups"
+      remote_path: "/volume3/backup"
+      fstype: "nfs4"
+      opts: "defaults,_netdev"
   failed_when: false # May fail if NFS server not ready or shares don't exist yet
 
 - name: Verify NFS mounts

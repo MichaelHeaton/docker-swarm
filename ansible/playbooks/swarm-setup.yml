@@ -18,6 +18,22 @@
   vars:
     docker_compose_version: "2.24.0"
 
+  pre_tasks:
+    - name: Set hostname if target_hostname is defined
+      ansible.builtin.hostname:
+        name: "{{ target_hostname }}"
+      when: target_hostname is defined
+      tags: [hostname, always]
+
+    - name: Update /etc/hosts with new hostname
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+.*'
+        line: "127.0.1.1\t{{ target_hostname }} {{ target_hostname }}.local"
+        state: present
+      when: target_hostname is defined
+      tags: [hostname, always]
+
   roles:
     - role: sudo
       tags: [sudo, users]
@@ -38,3 +54,6 @@
     - role: swarm
       tags: [swarm, cluster]
       when: swarm_role is defined
+
+    - role: docker-cleanup
+      tags: [docker, cleanup, maintenance]

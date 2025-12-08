@@ -54,9 +54,7 @@ Homepage can also discover services from Docker:
     href: https://portainer.specterrealm.com
     description: Container management UI
     icon: portainer.png
-    widget:
-      type: uptime-kuma
-      url: https://status.specterrealm.com/api/status-page/heartbeat/portainer
+    # Widget examples: traefik, docker, etc.
 ```
 
 ### Service Group
@@ -70,22 +68,6 @@ Homepage can also discover services from Docker:
       - Traefik:
           href: https://traefik.specterrealm.com
           description: Reverse proxy
-      - Status:
-          href: https://status.specterrealm.com
-          description: Service status monitoring
-```
-
-## Uptime Kuma Integration
-
-To show service status in Homepage, configure Uptime Kuma monitors and reference them:
-
-```yaml
-- Portainer:
-    href: https://portainer.specterrealm.com
-    description: Container management UI
-    widget:
-      type: uptime-kuma
-      url: https://status.specterrealm.com/api/status-page/heartbeat/portainer
 ```
 
 ## Recommended Service List
@@ -101,11 +83,7 @@ Based on your current services:
       - Traefik:
           href: https://traefik.specterrealm.com
           description: Reverse proxy
-      - Status:
-          href: https://status.specterrealm.com
-          description: Service status monitoring
       - Blocker:
           href: https://blocker.specterrealm.com
           description: DNS ad-blocking
 ```
-

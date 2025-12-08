@@ -10,60 +10,67 @@
         icon: traefik
         widget:
           type: traefik
-          url: http://traefik_traefik:8080/api/http/routers
+          url: http://172.16.15.3:8080/api/http/routers
     - Portainer:
         href: https://portainer-mgmt.specterrealm.com
         description: Container management UI
         icon: portainer
-    - Uptime Kuma:
-        href: https://status-mgmt.specterrealm.com
-        description: Service status monitoring
-        icon: uptime-kuma
+        ping: https://portainer-mgmt.specterrealm.com
     - Proxmox (GPU01):
         href: https://gpu01.specterrealm.com:8006
         icon: proxmox
+        ping: gpu01.specterrealm.com
     - Proxmox (NUC01):
         href: https://nuc01.specterrealm.com:8006
         icon: proxmox
+        ping: nuc01.specterrealm.com
     - Proxmox (NUC02):
         href: https://nuc02.specterrealm.com:8006
         icon: proxmox
+        ping: nuc02.specterrealm.com
     - NAS01:
-        href: https://nas01.specterrealm.com:5001/#/signin
+        href: https://nas01-mgmt.specterrealm.com:5001/#/signin
         icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/synology-dsm.svg
+        ping: nas01-mgmt.specterrealm.com
     - Unifi:
         href: https://unifi.ui.com/consoles/
         icon: unifi
+        ping: unifi-mgmt.specterrealm.com
     - Cloudflare:
         href: https://dash.cloudflare.com/
         icon: cloudflare
+        # External service - no ping available
 
 - Security:
     - Consul:
         href: https://consul.specterrealm.com
         icon: consul
-        ping: consul.host
+        ping: consul.specterrealm.com
     - Vault:
         href: https://vault.specterrealm.com
         icon: vault
+        ping: https://vault.specterrealm.com
 
 - DNS:
     - AdGuard Home:
         href: https://adguard-mgmt.specterrealm.com
         description: DNS ad-blocking and filtering
         icon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/adguard-home.png
+        ping: https://adguard-mgmt.specterrealm.com
 
 - Dashboards:
     - Family Dashboard:
         href: https://home.specterrealm.com
         description: Family service dashboard
         icon: homepage
+        ping: https://home.specterrealm.com
 
 - Stream:
     - Plex:
         href: https://streaming.specterrealm.com
         icon: plex
         description: Media server
+        ping: https://streaming.specterrealm.com
 
 - ESport:
     - Minecraft:

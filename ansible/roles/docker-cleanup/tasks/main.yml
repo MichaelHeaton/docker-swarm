@@ -1,0 +1,40 @@
+---
+# Docker Container Cleanup Role
+# Automatically cleans up stopped containers to prevent disk space issues
+#
+# Variables:
+#   docker_cleanup_enabled: true/false (default: true)
+#   docker_cleanup_schedule: cron schedule (default: "0 2 * * *" - daily at 2 AM)
+#   docker_cleanup_log_file: log file path (default: /var/log/docker-cleanup.log)
+
+- name: Check if Docker cleanup is enabled
+  ansible.builtin.set_fact:
+    cleanup_enabled: "{{ docker_cleanup_enabled | default(true) }}"
+
+- name: Create log directory for Docker cleanup
+  ansible.builtin.file:
+    path: "{{ (docker_cleanup_log_file | default('/var/log/docker-cleanup.log')) | dirname }}"
+    state: directory
+    mode: "0755"
+  when: cleanup_enabled
+
+- name: Configure Docker container cleanup cron job
+  ansible.builtin.cron:
+    name: "Docker container cleanup"
+    user: root
+    minute: "{{ (docker_cleanup_schedule | default('0 2 * * *')).split()[0] }}"
+    hour: "{{ (docker_cleanup_schedule | default('0 2 * * *')).split()[1] }}"
+    day: "{{ (docker_cleanup_schedule | default('0 2 * * *')).split()[2] }}"
+    month: "{{ (docker_cleanup_schedule | default('0 2 * * *')).split()[3] }}"
+    weekday: "{{ (docker_cleanup_schedule | default('0 2 * * *')).split()[4] }}"
+    job: "docker container prune -f >> {{ docker_cleanup_log_file | default('/var/log/docker-cleanup.log') }} 2>&1"
+    state: present
+  when: cleanup_enabled
+
+- name: Display cleanup configuration
+  ansible.builtin.debug:
+    msg:
+      - "Docker cleanup: {{ 'enabled' if cleanup_enabled else 'disabled' }}"
+      - "Schedule: {{ docker_cleanup_schedule | default('0 2 * * *') }}"
+      - "Log file: {{ docker_cleanup_log_file | default('/var/log/docker-cleanup.log') }}"
+  when: cleanup_enabled

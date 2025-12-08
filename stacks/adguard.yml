@@ -15,8 +15,8 @@ services:
     image: adguard/adguardhome:latest
     network_mode: host  # Required to access VLAN interfaces directly
     volumes:
-      - adguard_work:/opt/adguardhome/work
-      - adguard_conf:/opt/adguardhome/conf
+      - /mnt/nas/dockers/adguard/work:/opt/adguardhome/work
+      - /mnt/nas/dockers/adguard/conf:/opt/adguardhome/conf
     ports:
       # DNS (UDP/TCP) - required for DNS to work
       - target: 53
@@ -53,14 +53,17 @@ services:
       #   - VLAN 101: https://172.16.101.2:3000
       #   - VLAN 15: https://172.16.15.2:3000
       # Or via Traefik proxy: https://adguard-mgmt.specterrealm.com
+      labels:
     cap_add:
       - NET_BIND_SERVICE  # Required to bind to port 53
     environment:
       - TZ=${TRAEFIK_TIMEZONE:-UTC}
 
-volumes:
-  adguard_work:
-    driver: local
-  adguard_conf:
-    driver: local
+# Volumes are now using NFS bind mounts instead of local Docker volumes
+# This ensures configuration persists across stack redeployments
+# volumes:
+#   adguard_work:
+#     driver: local
+#   adguard_conf:
+#     driver: local
 

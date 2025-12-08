@@ -7,6 +7,7 @@
         href: https://streaming.specterrealm.com
         icon: plex
         description: Media server
+        ping: https://streaming.specterrealm.com
 
 - ESport:
     - Minecraft:

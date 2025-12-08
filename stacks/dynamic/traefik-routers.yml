@@ -54,6 +54,37 @@ http:
       middlewares:
         - lan-allow@file
 
+    # Streaming (Plex) - HTTP redirect
+    streaming-http:
+      rule: Host(`streaming.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https@file
+      priority: 100
+
+    # Streaming (Plex) - HTTPS
+    streaming:
+      rule: Host(`streaming.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: plex
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow@file
+
+  services:
+    # Plex VM service (not a Docker Swarm service, so configured via file provider)
+    plex:
+      loadBalancer:
+        servers:
+          # Plex VM on VLAN 10 (Production network)
+          # Using Plex VM IP: 172.16.10.20
+          - url: http://172.16.10.20:32400
+        passHostHeader: true
+
   middlewares:
     # Middlewares defined here are available to all services via @file suffix
     redirect-to-https:
@@ -62,7 +93,7 @@ http:
         permanent: true
 
     lan-allow:
-      ipWhiteList:
+      ipAllowList:
         sourceRange:
           - 172.16.0.0/12
           - 10.0.0.0/8

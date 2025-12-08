@@ -3,6 +3,7 @@
 ## Prerequisites
 
 1. Create `.env` file in `stacks/` directory:
+
    ```bash
    # Create .env file with:
    CF_API_TOKEN=your_cloudflare_api_token_here
@@ -22,7 +23,6 @@ Deploy services in this order:
 2. Portainer (container management)
 3. AdGuard Home (DNS ad-blocking)
 4. Homepage Family & Admin (dashboards)
-5. Uptime Kuma (status monitoring)
 
 ## Deploying Services
 
@@ -60,14 +60,6 @@ docker stack deploy -c homepage-family.yml homepage-family
 docker stack deploy -c homepage-admin.yml homepage-admin
 ```
 
-### 5. Uptime Kuma (Status Monitoring)
-
-```bash
-docker stack deploy -c uptime-kuma.yml uptime-kuma
-```
-
-**Note**: Uptime Kuma is pinned to `swarm-pi5-01` for multi-VLAN access.
-
 ## Initial Setup
 
 ### Homepage
@@ -75,6 +67,7 @@ docker stack deploy -c uptime-kuma.yml uptime-kuma
 1. Access `https://home.specterrealm.com` (Family) or `https://admin.specterrealm.com` (Admin)
 2. Homepage will create default config files in the volumes
 3. Copy configuration files to containers:
+
    ```bash
    # Copy Family config
    docker cp stacks/homepage-family-services.yaml <container-id>:/app/config/services.yaml
@@ -87,22 +80,6 @@ docker stack deploy -c uptime-kuma.yml uptime-kuma
 
 See `homepage-config-example.md` for configuration examples.
 
-### Uptime Kuma
-
-1. Access `https://status.specterrealm.com` or `https://status-mgmt.specterrealm.com`
-2. Complete initial setup wizard:
-   - Create admin account
-   - Set timezone
-3. Add monitors for services (use management URLs for VLAN 15 access):
-   - Portainer: `https://portainer-mgmt.specterrealm.com`
-   - Traefik: `https://traefik-mgmt.specterrealm.com`
-   - Blocker: `https://adguard-mgmt.specterrealm.com`
-   - Homepage Family: `https://home.specterrealm.com`
-   - Homepage Admin: `https://admin.specterrealm.com`
-   - Status: `https://status-mgmt.specterrealm.com`
-
-See `uptime-kuma-monitors.md` for recommended monitor configuration.
-
 ## DNS Records Required
 
 ### CNAME Records (Point to Traefik)
@@ -111,7 +88,6 @@ See `uptime-kuma-monitors.md` for recommended monitor configuration.
 - `blocker.specterrealm.com` → `traefik.specterrealm.com`
 - `home.specterrealm.com` → `traefik.specterrealm.com`
 - `admin.specterrealm.com` → `traefik.specterrealm.com`
-- `status.specterrealm.com` → `traefik.specterrealm.com`
 - `streaming.specterrealm.com` → `traefik.specterrealm.com`
 
 ### A Records (Direct Access)
@@ -120,7 +96,6 @@ See `uptime-kuma-monitors.md` for recommended monitor configuration.
 - `traefik-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
 - `portainer-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
 - `adguard-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
-- `status-mgmt.specterrealm.com` → 172.16.15.13 (VLAN 15)
 
 ## Updating Stacks
 
@@ -150,6 +125,7 @@ curl -s http://localhost:8080/api/http/routers | jq -r '.[] | "\(.name) - \(.rul
 ## Environment Variables
 
 The `.env` file should contain:
+
 - `CF_API_TOKEN`: Your Cloudflare API token for DNS challenge (required for Traefik SSL)
 - `TRAEFIK_TIMEZONE`: Timezone (default: UTC)
 

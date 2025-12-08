@@ -8,8 +8,8 @@ services:
   homepage-admin:
     image: ghcr.io/gethomepage/homepage:latest
     volumes:
-      - homepage_admin_config:/app/config
-      - homepage_admin_icons:/app/public/icons
+      - /mnt/nas/dockers/homepage-admin/config:/app/config
+      - /mnt/nas/dockers/homepage-admin/icons:/app/public/icons
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - mgmt-network
@@ -44,9 +44,5 @@ services:
       - HOMEPAGE_SUBTITLE=Service Dashboard for Administrators
       - HOMEPAGE_ALLOWED_HOSTS=admin.specterrealm.com
 
-volumes:
-  homepage_admin_config:
-    driver: local
-  homepage_admin_icons:
-    driver: local
+# Volumes are now on NFS at /mnt/nas/dockers/homepage-admin/
 

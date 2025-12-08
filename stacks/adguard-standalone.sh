@@ -30,20 +30,21 @@ echo -e "${YELLOW}Removing existing standalone container...${NC}"
 docker stop adguard 2>/dev/null || true
 docker rm adguard 2>/dev/null || true
 
-# Create volumes if they don't exist
-echo -e "${YELLOW}Creating volumes...${NC}"
-docker volume create adguard_work 2>/dev/null || true
-docker volume create adguard_conf 2>/dev/null || true
+# Ensure NFS directories exist
+echo -e "${YELLOW}Checking NFS directories...${NC}"
+sudo mkdir -p /mnt/nas/dockers/adguard/work
+sudo mkdir -p /mnt/nas/dockers/adguard/conf
+sudo chown -R 977:docker /mnt/nas/dockers/adguard
 
-# Run AdGuard with host networking
+# Run AdGuard with host networking and NFS mounts
 echo -e "${GREEN}Starting AdGuard container with host networking...${NC}"
 docker run -d \
   --name adguard \
   --restart unless-stopped \
   --network host \
   --cap-add NET_BIND_SERVICE \
-  -v adguard_work:/opt/adguardhome/work \
-  -v adguard_conf:/opt/adguardhome/conf \
+  -v /mnt/nas/dockers/adguard/work:/opt/adguardhome/work \
+  -v /mnt/nas/dockers/adguard/conf:/opt/adguardhome/conf \
   -e TZ=${TRAEFIK_TIMEZONE:-UTC} \
   adguard/adguardhome:latest
 

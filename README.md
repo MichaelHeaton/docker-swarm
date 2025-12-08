@@ -45,12 +45,11 @@ This repository contains Ansible playbooks and Docker Swarm stack definitions fo
 
    - URL: `https://admin.specterrealm.com` (via Traefik)
    - Status: ✅ Running (1 replica, manager nodes)
-   - Note: Uses management URLs for all services
+   - Note: Uses management URLs for all services and includes built-in status monitoring
 
-6. **Uptime Kuma** - Status Monitoring
-   - Public: `https://status.specterrealm.com` (via Traefik)
-   - Management: `https://status-mgmt.specterrealm.com` (172.16.15.13 - VLAN 15)
-   - Status: ✅ Running (1 replica, pinned to swarm-pi5-01)
+6. **Streaming (Plex)** - Media Server
+   - URL: `https://streaming.specterrealm.com` (via Traefik)
+   - Status: ✅ Running (VM on Proxmox, routed via Traefik)
 
 See `SERVICES-STATUS.md` for detailed service information and DNS configuration.
 
@@ -96,7 +95,6 @@ docker stack deploy -c portainer.yml portainer
 docker stack deploy -c adguard.yml adguard
 docker stack deploy -c homepage-family.yml homepage-family
 docker stack deploy -c homepage-admin.yml homepage-admin
-docker stack deploy -c uptime-kuma.yml uptime-kuma
 ```
 
 See `stacks/DEPLOY.md` for detailed deployment instructions.
@@ -122,7 +120,6 @@ docker-swarm/
 │   ├── adguard.yml              # AdGuard Home DNS ad-blocking
 │   ├── homepage-family.yml      # Family dashboard
 │   ├── homepage-admin.yml       # Admin dashboard
-│   ├── uptime-kuma.yml          # Status monitoring
 │   ├── dynamic/
 │   │   └── traefik-routers.yml  # Traefik dynamic configuration
 │   └── DEPLOY.md                # Deployment guide
@@ -160,15 +157,13 @@ All user-facing services use CNAME records pointing to `traefik.specterrealm.com
 - `blocker.specterrealm.com` → `traefik.specterrealm.com`
 - `home.specterrealm.com` → `traefik.specterrealm.com`
 - `admin.specterrealm.com` → `traefik.specterrealm.com`
-- `status.specterrealm.com` → `traefik.specterrealm.com`
 - `streaming.specterrealm.com` → `traefik.specterrealm.com`
 
 Management access uses A records pointing directly to VLAN 15 IPs:
 
 - `traefik-mgmt.specterrealm.com` → 172.16.15.13
-- `portainer-mgmt.specterrealm.com` → 172.16.15.13
-- `adguard-mgmt.specterrealm.com` → 172.16.15.13
-- `status-mgmt.specterrealm.com` → 172.16.15.13
+- `portainer-mgmt.specterrealm.com` → 172.16.15.3
+- `adguard-mgmt.specterrealm.com` → 172.16.15.2
 
 See `DNS-ARCHITECTURE-SUMMARY.md` for complete DNS architecture details.
 
@@ -195,11 +190,30 @@ docker network ls
 
 ## Documentation
 
+### Repository Documentation
+
+- **README.md**: This file - overview and quick start
 - **SERVICES-STATUS.md**: Current deployment status and DNS configuration
 - **DNS-ARCHITECTURE-SUMMARY.md**: DNS naming conventions and architecture
+- **DEPLOYMENT.md**: Environment variable setup (.env configuration)
+- **NFS-SHARES-SUMMARY.md**: NFS mount configuration and shares
+
+### Stack Documentation
+
 - **stacks/DEPLOY.md**: Service deployment instructions
 - **stacks/homepage-config-example.md**: Homepage configuration examples
-- **stacks/uptime-kuma-monitors.md**: Uptime Kuma monitor configuration
+
+### Infrastructure Documentation
+
+For detailed infrastructure documentation, see:
+
+- **specs-homelab/stacks/infrastructure.md**: Infrastructure stack documentation (Traefik, AdGuard, Homepage)
+- **specs-homelab/infrastructure/docker.md**: Docker Swarm setup and configuration
+- **specs-homelab/network/dns.md**: DNS architecture and naming conventions
+
+### Historical Documentation
+
+- **archive/**: Historical troubleshooting and fix documentation
 
 ## Dependencies
 

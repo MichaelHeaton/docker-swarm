@@ -82,12 +82,10 @@ services:
       - 172.16.15.1  # UniFi DNS
       - 1.1.1.1      # Cloudflare DNS
     deploy:
-      replicas: 2
+      replicas: 1
       placement:
         constraints:
           - node.role == manager
-        preferences:
-          - spread: node.id
       restart_policy:
         condition: on-failure
         delay: 5s
