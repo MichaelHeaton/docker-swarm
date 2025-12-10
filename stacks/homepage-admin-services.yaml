@@ -71,6 +71,48 @@
         icon: plex
         description: Media server
         ping: https://streaming.specterrealm.com
+    - Overseerr:
+        href: https://overseerr.specterrealm.com
+        icon: overseerr
+        description: Media requests and discovery
+        ping: https://overseerr.specterrealm.com
+    - Tautulli:
+        href: https://tautulli.specterrealm.com
+        icon: tautulli
+        description: Plex analytics and monitoring
+        ping: https://tautulli.specterrealm.com
+
+- Media Management:
+    - Sonarr:
+        href: https://sonarr.specterrealm.com
+        icon: sonarr
+        description: TV show management
+        ping: https://sonarr.specterrealm.com
+    - Radarr:
+        href: https://radarr.specterrealm.com
+        icon: radarr
+        description: Movie management
+        ping: https://radarr.specterrealm.com
+    - Bazarr:
+        href: https://bazarr.specterrealm.com
+        icon: bazarr
+        description: Subtitle management
+        ping: https://bazarr.specterrealm.com
+    - Prowlarr:
+        href: https://prowlarr.specterrealm.com
+        icon: prowlarr
+        description: Indexer management
+        ping: https://prowlarr.specterrealm.com
+    - SABnzbd:
+        href: https://sabnzbd.specterrealm.com
+        icon: sabnzbd
+        description: Usenet downloader
+        ping: https://sabnzbd.specterrealm.com
+    - Tdarr:
+        href: https://tdarr.specterrealm.com
+        icon: tdarr
+        description: Media transcoding and optimization
+        ping: https://tdarr.specterrealm.com
 
 - ESport:
     - Minecraft:

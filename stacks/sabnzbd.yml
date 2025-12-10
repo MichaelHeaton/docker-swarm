@@ -1,0 +1,46 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    volumes:
+      - /mnt/nas/dockers/sabnzbd/config:/config
+      - /mnt/nas/media_streaming/downloads/usenet:/data/downloads:rw
+      - /mnt/nas/media_streaming/downloads/completed:/data/completed:rw
+      - /mnt/nas/media_streaming/downloads/incomplete:/data/incomplete:rw
+    networks:
+      - mgmt-network
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.sabnzbd.loadbalancer.server.port=8080
+        - traefik.http.services.sabnzbd.loadbalancer.passHostHeader=true
+        # HTTPS
+        - traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.specterrealm.com`)
+        - traefik.http.routers.sabnzbd.entrypoints=websecure
+        - traefik.http.routers.sabnzbd.tls.certresolver=cf
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.sabnzbd-http.rule=Host(`sabnzbd.specterrealm.com`)
+        - traefik.http.routers.sabnzbd-http.entrypoints=web
+        - traefik.http.routers.sabnzbd-http.service=noop@internal
+        - traefik.http.routers.sabnzbd-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.sabnzbd-http.priority=100
+

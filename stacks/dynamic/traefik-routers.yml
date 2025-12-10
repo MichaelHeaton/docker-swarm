@@ -75,6 +75,28 @@ http:
       middlewares:
         - lan-allow@file
 
+    # Tdarr - HTTP redirect
+    tdarr-http:
+      rule: Host(`tdarr.specterrealm.com`)
+      entryPoints:
+        - web
+      service: noop@internal
+      middlewares:
+        - redirect-to-https@file
+      priority: 100
+
+    # Tdarr - HTTPS
+    tdarr:
+      rule: Host(`tdarr.specterrealm.com`)
+      entryPoints:
+        - websecure
+      service: tdarr
+      tls:
+        certResolver: cf
+      middlewares:
+        - lan-allow@file
+      priority: 100
+
   services:
     # Plex VM service (not a Docker Swarm service, so configured via file provider)
     plex:
@@ -83,6 +105,15 @@ http:
           # Plex VM on VLAN 10 (Production network)
           # Using Plex VM IP: 172.16.10.20
           - url: http://172.16.10.20:32400
+        passHostHeader: true
+
+    # Tdarr VM service (not a Docker Swarm service, so configured via file provider)
+    tdarr:
+      loadBalancer:
+        servers:
+          # Tdarr VM on VLAN 10 (Production network)
+          # Using Tdarr VM IP: 172.16.10.21
+          - url: http://172.16.10.21:8265
         passHostHeader: true
 
   middlewares:
@@ -96,5 +127,14 @@ http:
       ipAllowList:
         sourceRange:
           - 172.16.0.0/12
+          - 10.0.0.0/8
+
+    admin-allow:
+      ipAllowList:
+        sourceRange:
+          - 172.16.10.0/24
+          - 172.16.15.0/24
+          - 172.16.20.0/24
+          - 172.16.40.0/24
           - 10.0.0.0/8
 

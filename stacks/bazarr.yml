@@ -1,0 +1,46 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    volumes:
+      - /mnt/nas/dockers/bazarr/config:/config
+      - /mnt/nas/media_streaming:/data/media:ro
+      - /mnt/nas/media_streaming/movies:/data/movies:ro
+      - /mnt/nas/media_streaming/series:/data/tv:ro
+      - /mnt/nas/media_streaming/metadata/bazarr:/data/metadata:rw
+    networks:
+      - mgmt-network
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.bazarr.loadbalancer.server.port=6767
+        # HTTPS
+        - traefik.http.routers.bazarr.rule=Host(`bazarr.specterrealm.com`)
+        - traefik.http.routers.bazarr.entrypoints=websecure
+        - traefik.http.routers.bazarr.tls.certresolver=cf
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.bazarr-http.rule=Host(`bazarr.specterrealm.com`)
+        - traefik.http.routers.bazarr-http.entrypoints=web
+        - traefik.http.routers.bazarr-http.service=noop@internal
+        - traefik.http.routers.bazarr-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.bazarr-http.priority=100
+

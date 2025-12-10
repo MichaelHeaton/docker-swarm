@@ -107,8 +107,11 @@ services:
         # traefik.enable=false prevents Traefik from trying to discover itself via Docker provider
         - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
         - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+        # lan-allow: Allows all internal networks including VLAN 5 (Family)
         - traefik.http.middlewares.lan-allow.ipwhitelist.sourcerange=172.16.0.0/12,10.0.0.0/8
-        - traefik.http.middlewares.admin-allow.ipwhitelist.sourcerange=172.16.0.0/12,10.0.0.0/8
+        # admin-allow: Allows admin VLANs only (excludes VLAN 5 Family)
+        # Admin VLANs: 10 (Production), 15 (Management), 20 (Lab), 40 (DMZ)
+        - traefik.http.middlewares.admin-allow.ipwhitelist.sourcerange=172.16.10.0/24,172.16.15.0/24,172.16.20.0/24,172.16.40.0/24,10.0.0.0/8
 
 volumes:
   traefik_acme:

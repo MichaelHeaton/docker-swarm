@@ -1,0 +1,43 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    volumes:
+      - /mnt/nas/dockers/overseerr/config:/config
+      - /mnt/nas/media_streaming:/data/media:ro
+    networks:
+      - mgmt-network
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.overseerr.loadbalancer.server.port=5055
+        # HTTPS
+        - traefik.http.routers.overseerr.rule=Host(`overseerr.specterrealm.com`)
+        - traefik.http.routers.overseerr.entrypoints=websecure
+        - traefik.http.routers.overseerr.tls.certresolver=cf
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.overseerr-http.rule=Host(`overseerr.specterrealm.com`)
+        - traefik.http.routers.overseerr-http.entrypoints=web
+        - traefik.http.routers.overseerr-http.service=noop@internal
+        - traefik.http.routers.overseerr-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.overseerr-http.priority=100
+

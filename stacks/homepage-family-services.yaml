@@ -8,6 +8,16 @@
         icon: plex
         description: Media server
         ping: https://streaming.specterrealm.com
+    - Overseerr:
+        href: https://overseerr.specterrealm.com
+        icon: overseerr
+        description: Media requests and discovery
+        ping: https://overseerr.specterrealm.com
+    - Tautulli:
+        href: https://tautulli.specterrealm.com
+        icon: tautulli
+        description: Plex analytics and monitoring
+        ping: https://tautulli.specterrealm.com
 
 - ESport:
     - Minecraft:

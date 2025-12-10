@@ -1,0 +1,42 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    volumes:
+      - /mnt/nas/dockers/prowlarr/config:/config
+    networks:
+      - mgmt-network
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.prowlarr.loadbalancer.server.port=9696
+        # HTTPS
+        - traefik.http.routers.prowlarr.rule=Host(`prowlarr.specterrealm.com`)
+        - traefik.http.routers.prowlarr.entrypoints=websecure
+        - traefik.http.routers.prowlarr.tls.certresolver=cf
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.prowlarr-http.rule=Host(`prowlarr.specterrealm.com`)
+        - traefik.http.routers.prowlarr-http.entrypoints=web
+        - traefik.http.routers.prowlarr-http.service=noop@internal
+        - traefik.http.routers.prowlarr-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.prowlarr-http.priority=100
+
