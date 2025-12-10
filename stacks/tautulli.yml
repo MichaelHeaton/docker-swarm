@@ -1,0 +1,42 @@
+version: "3.8"
+
+networks:
+  mgmt-network:
+    external: true
+
+services:
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    volumes:
+      - /mnt/nas/dockers/tautulli/config:/config
+    networks:
+      - mgmt-network
+    environment:
+      - TZ=${TRAEFIK_TIMEZONE:-UTC}
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=mgmt-network
+        - traefik.http.services.tautulli.loadbalancer.server.port=8181
+        # HTTPS
+        - traefik.http.routers.tautulli.rule=Host(`tautulli.specterrealm.com`)
+        - traefik.http.routers.tautulli.entrypoints=websecure
+        - traefik.http.routers.tautulli.tls.certresolver=cf
+        # HTTP -> HTTPS redirect
+        - traefik.http.routers.tautulli-http.rule=Host(`tautulli.specterrealm.com`)
+        - traefik.http.routers.tautulli-http.entrypoints=web
+        - traefik.http.routers.tautulli-http.service=noop@internal
+        - traefik.http.routers.tautulli-http.middlewares=redirect-to-https@file
+        - traefik.http.routers.tautulli-http.priority=100
+
